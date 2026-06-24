@@ -227,7 +227,7 @@ $("#botForm").addEventListener("submit", async (e) => {
     }
   }
   try {
-    await api("POST", "/api/v1/bots", {
+    const r = await api("POST", "/api/v1/bots", {
       userId: f.dataset.uid,
       channel: fd.get("channel"),
       accountId: fd.get("accountId"),
@@ -235,11 +235,41 @@ $("#botForm").addEventListener("submit", async (e) => {
       credentials,
     });
     $("#botDialog").close();
+    if (r.needsQrScan && r.loginSessionId) {
+      openQrDialog(r.loginSessionId);
+    }
     loadUsers();
   } catch (err) {
     alert("创建失败：" + err.message);
   }
 });
+
+let qrPollTimer = null;
+function openQrDialog(sessionId) {
+  const dlg = $("#qrDialog");
+  const buf = $("#qrBuffer");
+  const status = $("#qrStatus");
+  buf.textContent = "等待 openclaw 输出二维码…";
+  status.textContent = "状态：pending";
+  dlg.showModal();
+  if (qrPollTimer) clearInterval(qrPollTimer);
+  qrPollTimer = setInterval(async () => {
+    try {
+      const r = await api("GET", `/api/v1/bots/login-sessions/${encodeURIComponent(sessionId)}`);
+      buf.textContent = r.buffer || "（暂无输出）";
+      status.textContent = `状态：${r.status}` + (r.exitCode !== null ? ` (exit=${r.exitCode})` : "");
+      if (r.status !== "pending") {
+        clearInterval(qrPollTimer);
+        qrPollTimer = null;
+        if (r.status === "ok") loadUsers();
+      }
+    } catch (err) {
+      status.textContent = "轮询失败：" + err.message;
+      clearInterval(qrPollTimer);
+      qrPollTimer = null;
+    }
+  }, 1500);
+}
 
 async function loadGroups() {
   const [groupsResp, usersResp] = await Promise.all([

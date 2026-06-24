@@ -87,6 +87,16 @@
         </form>
       </dialog>
 
+      <dialog id="qrDialog">
+        <h3>微信扫码登录</h3>
+        <p class="muted">让对方用手机微信扫描下方二维码完成登录。窗口会自动检测扫码状态。</p>
+        <pre id="qrBuffer" style="font-size:9px;line-height:9px;background:#fff;color:#000;padding:8px;border-radius:6px;max-height:60vh;overflow:auto;"></pre>
+        <p id="qrStatus" class="muted"></p>
+        <div class="row">
+          <button onclick="document.getElementById('qrDialog').close()" class="secondary">关闭</button>
+        </div>
+      </dialog>
+
       <section class="tab" data-tab="groups" hidden>
         <h2>分组</h2>
         <form id="newGroupForm" class="row">

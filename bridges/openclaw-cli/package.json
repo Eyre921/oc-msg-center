@@ -1,0 +1,8 @@
+{
+  "name": "oc-msg-center-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "bridge.mjs",
+  "dependencies": {}
+}

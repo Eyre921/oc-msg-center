@@ -1,0 +1,8 @@
+[
+  {
+    "id": "console",
+    "label": "Console (本地测试)",
+    "type": "console",
+    "enabled": true
+  }
+]

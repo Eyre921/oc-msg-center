@@ -251,6 +251,16 @@ function openQrDialog(sessionId) {
   const status = $("#qrStatus");
   buf.textContent = "等待 openclaw 输出二维码…";
   status.textContent = "状态：pending";
+  dlg.addEventListener(
+    "close",
+    () => {
+      if (qrPollTimer) {
+        clearInterval(qrPollTimer);
+        qrPollTimer = null;
+      }
+    },
+    { once: true },
+  );
   dlg.showModal();
   if (qrPollTimer) clearInterval(qrPollTimer);
   qrPollTimer = setInterval(async () => {
@@ -261,7 +271,16 @@ function openQrDialog(sessionId) {
       if (r.status !== "pending") {
         clearInterval(qrPollTimer);
         qrPollTimer = null;
-        if (r.status === "ok") loadUsers();
+        if (r.status === "ok") {
+          status.textContent = "✅ 绑定成功，正在关闭…";
+          loadUsers();
+          setTimeout(() => {
+            const d = $("#qrDialog");
+            if (d.open) d.close();
+          }, 1500);
+        } else {
+          status.textContent = `❌ 登录失败 (exit=${r.exitCode}). 请关闭后重试。`;
+        }
       }
     } catch (err) {
       status.textContent = "轮询失败：" + err.message;

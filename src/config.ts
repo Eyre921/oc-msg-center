@@ -16,15 +16,18 @@ export interface ChannelConfig {
   id: string;
   /** Human label shown in the UI, e.g. "QQ" / "微信". */
   label: string;
-  /** Adapter implementation. "webhook" bridges to a plugin; "console" just logs. */
-  type: "webhook" | "console";
+  /** Adapter implementation. "openclaw" shells out to the embedded openclaw CLI;
+   *  "webhook" POSTs to an external bridge; "console" just logs. */
+  type: "openclaw" | "webhook" | "console";
   /** Whether the channel is active. */
   enabled?: boolean;
-  /** webhook: URL the center POSTs outbound messages to (the bridge's send endpoint). */
+  /** openclaw: the channel id understood by `openclaw` itself (e.g. "qqbot", "openclaw-weixin"). */
+  openclawChannel?: string;
+  /** webhook: URL the center POSTs outbound messages to. */
   sendUrl?: string;
-  /** webhook: bearer token attached to outbound POSTs (authenticates center -> bridge). */
+  /** webhook: bearer token attached to outbound POSTs. */
   sendToken?: string;
-  /** webhook: bearer token the bridge must present on inbound POSTs (authenticates bridge -> center). */
+  /** webhook: bearer token the bridge must present on inbound POSTs. */
   inboundToken?: string;
   /** webhook: URL the center POSTs to manage bot accounts (provision/revoke). Optional. */
   controlUrl?: string;
@@ -113,6 +116,7 @@ function loadChannels(): ChannelConfig[] {
       label: ch.label ?? ch.id,
       type: ch.type ?? "webhook",
       enabled: ch.enabled ?? true,
+      openclawChannel: ch.openclawChannel,
       sendUrl: ch.sendUrl,
       sendToken: ch.sendToken,
       inboundToken: ch.inboundToken,

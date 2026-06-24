@@ -35,31 +35,31 @@
 ## 🧱 架构
 
 ```
-                                     +──── oc-msg-center ──────────+
-   报警 / 脚本 / Prometheus webhook   │ Fastify · SQLite             │
-   ─── POST /api/v1/publish ────────▶│ users / bots / groups        │
-                                     │ topics / subs / messages     │◀── 浏览器：管理台
-                                     │ SSE · WS · 出站 webhook       │     /web 实时流
-                                     +──────┬───────────────┬───────+
-                                            │ /send         │ POST /inbound
-                                            │ /bots         │ ▲
-                                            ▼               │
-                                   ┌─ qq-bridge ─┐  ┌─ weixin-bridge ─┐
-                                   │ 托管 N 个    │  │ 托管 N 个        │
-                                   │ QQ accounts │  │ 微信 accounts    │
-                                   │ openclaw-qqbot│ openclaw-weixin  │
-                                   └──────┬──────┘  └────────┬────────┘
-                                          ▼                  ▼
-                                  Alice 的 QQ bot      Alice 的微信 bot
-                                  Bob 的 QQ bot        Bob 的微信 bot
-                                       ……                  ……
+   ┌──────────────────  单个容器  ──────────────────────────────────┐
+   │                                                                  │
+   │    msg-center (Fastify + SQLite)                                 │
+   │       ↑                                                          │
+   │       │ 读取/管理：users · bots · groups · topics · messages    │
+   │       │                                                          │
+   │       ├── 出站：spawn `openclaw message send --account X ...`   │
+   │       ├── 凭据：spawn `openclaw channels add --account X ...`   │
+   │       └── 入站：openclaw forward-skill POST 127.0.0.1:2586     │
+   │                                ↑                                 │
+   │       openclaw gateway (受 msg-center 监管的子进程，崩了自动重拉)│
+   │       托管 N 个 QQ accounts + N 个 微信 accounts                 │
+   │                                ↑                                 │
+   └────────────────────────────────│─────────────────────────────────┘
+                                    │
+                            Alice 的 QQ bot · Alice 的微信 bot
+                            Bob 的 QQ bot   · Bob 的微信 bot
+                                  ......
 ```
 
-- 同事 A、B、C 各自有自己的 QQ 机器人和自己的微信机器人，**互不相干**。
-- 每个 bridge 容器内部是 openclaw runtime（多账户模式），账户由 msg-center 通过控制平面
-  动态推入；凭据从来不写在容器 env 里。
-- 想换底层（不用 openclaw）？只重写 bridge —— msg-center 一行不动。完整契约见
-  [`docs/BRIDGE.md`](docs/BRIDGE.md)。
+- 同事 A、B、C 各自的 QQ + 微信 机器人凭据全部由 msg-center 集中管理，互不相干。
+- openclaw runtime 内嵌为子进程，msg-center 是它的 supervisor —— 崩了会按指数退避重拉。
+- 凭据不放 env，全部 web UI 一个一个加，落到本地 SQLite。
+- 想换底层（不用 openclaw）？看 [`docs/BRIDGE.md`](docs/BRIDGE.md) 的 webhook bridge 协议
+  —— msg-center 同时支持外部 bridge 渠道类型。
 
 ## 🚀 拿来就能用
 

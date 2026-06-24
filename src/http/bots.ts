@@ -64,7 +64,18 @@ export function registerBotRoutes(server: FastifyInstance): void {
       const result = await app.botControl.provision(bot);
       if (!result.ok) {
         app.store.updateBotStatus(bot.id, "error", false);
-        return reply.code(502).send({ error: `bridge rejected: ${result.error}`, bot });
+        return reply.code(502).send({ error: `provision failed: ${result.error}`, bot });
+      }
+      // WeChat: the gateway is now running an interactive login process —
+      // surface the session id so the UI can poll for the QR.
+      if (result.sessionId) {
+        const fresh = app.store.getBot(bot.id)!;
+        return reply.send({
+          ...fresh,
+          credentials: redact(fresh.credentials),
+          loginSessionId: result.sessionId,
+          needsQrScan: true,
+        });
       }
       app.store.updateBotStatus(bot.id, "active");
       const fresh = app.store.getBot(bot.id)!;
@@ -97,6 +108,30 @@ export function registerBotRoutes(server: FastifyInstance): void {
       if (body.status) app.store.updateBotStatus(id, body.status, false);
       const updated = app.store.getBot(id)!;
       return reply.send({ ...updated, credentials: redact(updated.credentials) });
+    } catch (err) {
+      return handleError(err, reply);
+    }
+  });
+
+  server.get("/api/v1/bots/login-sessions/:sessionId", async (req, reply) => {
+    try {
+      adminOnly(req);
+      const app = getApp(req);
+      const { sessionId } = req.params as { sessionId: string };
+      const sess = app.botControl.wechatLogins.get(sessionId);
+      if (!sess) return reply.code(404).send({ error: "session not found" });
+      // If the login finished, mark the corresponding bot active.
+      if (sess.status === "ok") {
+        const [channel, accountId] = sess.id.split(":", 2);
+        const bot = app.store.getBotByAccount(channel, accountId);
+        if (bot && bot.status !== "active") app.store.updateBotStatus(bot.id, "active");
+      }
+      return reply.send({
+        id: sess.id,
+        status: sess.status,
+        buffer: sess.buffer,
+        exitCode: sess.exitCode ?? null,
+      });
     } catch (err) {
       return handleError(err, reply);
     }

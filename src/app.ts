@@ -10,6 +10,8 @@ import { createLogger, type Logger } from "./logger.ts";
 import { Store } from "./db/store.ts";
 import { ChannelRegistry } from "./channels/registry.ts";
 import { BotControl } from "./channels/control.ts";
+import { OpenClawSupervisor } from "./openclaw/supervisor.ts";
+import { newToken } from "./util/ids.ts";
 import { StreamHub } from "./core/stream.ts";
 import { Attachments } from "./core/attachments.ts";
 import { WebhookDispatcher } from "./core/webhooks.ts";
@@ -33,6 +35,7 @@ export class App {
   readonly log: Logger;
   readonly store: Store;
   readonly registry: ChannelRegistry;
+  readonly supervisor: OpenClawSupervisor | null;
   readonly botControl: BotControl;
   readonly stream: StreamHub;
   readonly attachments: Attachments;
@@ -48,7 +51,31 @@ export class App {
     this.store = new Store(cfg.dbPath);
     ensureAdmin(cfg, this.store, this.log);
     this.registry = new ChannelRegistry(cfg.channels, this.log);
-    this.botControl = new BotControl(cfg, this.log);
+
+    // If any channel is type "openclaw", spawn the embedded gateway. The
+    // forward-skill posts inbound events back to msg-center on this exact
+    // baseUrl + auto-issued internal token (same token used to authenticate
+    // the inbound webhook below).
+    if (this.registry.openclawConfigs.length > 0) {
+      const internalInboundToken =
+        cfg.channels.find((c) => c.inboundToken)?.inboundToken ?? newToken("oci");
+      // Propagate the auto-token onto any openclaw channel that didn't set one
+      // — the inbound webhook handler reads it from cfg.channels.
+      for (const c of cfg.channels) {
+        if (c.type === "openclaw" && !c.inboundToken) c.inboundToken = internalInboundToken;
+      }
+      this.supervisor = new OpenClawSupervisor({
+        log: this.log,
+        msgcenterUrl: `http://127.0.0.1:${cfg.port}`,
+        inboundToken: internalInboundToken,
+        configDir: process.env.HOME ? `${process.env.HOME}/.openclaw` : "/root/.openclaw",
+        plugins: pluginsFor(this.registry.openclawConfigs.map((c) => c.openclawChannel!)),
+      });
+    } else {
+      this.supervisor = null;
+    }
+
+    this.botControl = new BotControl(cfg, this.log, this.supervisor);
     this.stream = new StreamHub();
     this.attachments = new Attachments(cfg, this.store);
     this.webhooks = new WebhookDispatcher(this.store, this.log);
@@ -116,11 +143,35 @@ export class App {
       },
       "oc-msg-center listening",
     );
+
+    if (this.supervisor) {
+      try {
+        await this.supervisor.setup();
+        this.supervisor.start();
+      } catch (err) {
+        this.log.error({ err: (err as Error).message }, "openclaw supervisor setup failed");
+      }
+    }
   }
 
   async stop(): Promise<void> {
     this.pruner.stop();
+    await this.supervisor?.stop();
     await this.server?.close();
     this.store.close();
   }
+}
+
+const PLUGIN_MAP: Record<string, string> = {
+  qqbot: "@tencent-connect/openclaw-qqbot",
+  "openclaw-weixin": "@tencent-weixin/openclaw-weixin",
+};
+
+function pluginsFor(openclawChannels: string[]): string[] {
+  const out = new Set<string>();
+  for (const c of openclawChannels) {
+    const p = PLUGIN_MAP[c];
+    if (p) out.add(p);
+  }
+  return [...out];
 }

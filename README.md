@@ -61,6 +61,19 @@
 - 想换底层（不用 openclaw）？看 [`docs/BRIDGE.md`](docs/BRIDGE.md) 的 webhook bridge 协议
   —— msg-center 同时支持外部 bridge 渠道类型。
 
+### 出站 vs 入站
+
+| 方向 | 机制 |
+| --- | --- |
+| **出站**（推送给同事） | msg-center → `openclaw message send --account <accountId> --target ...` |
+| **入站**（同事发回来） | openclaw 把每个账号的入站消息当作 LLM 请求，发到 msg-center 提供的 **OpenAI 兼容 agent 端点** `/v1/acct/<channel>/<accountId>/chat/completions`。msg-center 据账号识别是哪位同事，跑绑定/命令/反向逻辑，把回复作为模型输出返回，openclaw 自动发回给用户。 |
+
+也就是说 **msg-center 就是 openclaw 的「大脑」**。这也顺带解决了你可能见到的「暂无法连接
+OpenClaw」——那是因为没配 agent；现在 agent 就是 msg-center，添加机器人时自动配好。
+
+> ⚠️ 反向**文件/图片**：文本反向消息已打通（落到 `inbox-<userId>` 主题）。文件回传依赖
+> openclaw 把附件 URL 透传到 agent 上下文，目前按尽力解析，复杂附件可能拿不全 —— 后续完善。
+
 ## 🚀 拿来就能用
 
 > **镜像源**：当前镜像托管在 CNB **私有** registry，需要先 `docker login docker.cnb.cool`

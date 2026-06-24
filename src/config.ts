@@ -65,6 +65,8 @@ export interface Config {
   channelAutoRegister: boolean;
   /** Message sent to a user right after they bind / register by scanning. */
   welcomeMessage: string;
+  /** Reply sent back when a user's reverse message is captured (empty = stay silent). */
+  inboundAck: string;
   /** Delivery channels (bridges). */
   channels: ChannelConfig[];
   logLevel: string;
@@ -153,6 +155,7 @@ export function loadConfig(): Config {
       "MSGCENTER_WELCOME_MESSAGE",
       "✅ 你已成功绑定消息中心。\n稍后管理员会把你加入相应的通知分组，之后即可在此接收推送消息。",
     )!,
+    inboundAck: env("MSGCENTER_INBOUND_ACK", "📨 已收到，转达给消息中心。")!,
     channels: loadChannels(),
     logLevel: env("MSGCENTER_LOG_LEVEL", "info")!,
   };

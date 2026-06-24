@@ -11,7 +11,7 @@ import { Store } from "./db/store.ts";
 import { ChannelRegistry } from "./channels/registry.ts";
 import { BotControl } from "./channels/control.ts";
 import { OpenClawSupervisor } from "./openclaw/supervisor.ts";
-import { newToken } from "./util/ids.ts";
+import { resolveAgentToken } from "./openclaw/agent-token.ts";
 import { StreamHub } from "./core/stream.ts";
 import { Attachments } from "./core/attachments.ts";
 import { WebhookDispatcher } from "./core/webhooks.ts";
@@ -27,6 +27,7 @@ import { registerBindRoutes } from "./http/bind.ts";
 import { registerInboundRoutes } from "./http/inbound.ts";
 import { registerAdminRoutes } from "./http/admin.ts";
 import { registerBotRoutes } from "./http/bots.ts";
+import { registerAgentRoutes } from "./http/agent.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +38,8 @@ export class App {
   readonly registry: ChannelRegistry;
   readonly supervisor: OpenClawSupervisor | null;
   readonly botControl: BotControl;
+  /** Internal token openclaw presents (as provider apiKey) on the agent endpoint. */
+  readonly agentToken: string;
   readonly stream: StreamHub;
   readonly attachments: Attachments;
   readonly webhooks: WebhookDispatcher;
@@ -51,31 +54,27 @@ export class App {
     this.store = new Store(cfg.dbPath);
     ensureAdmin(cfg, this.store, this.log);
     this.registry = new ChannelRegistry(cfg.channels, this.log);
+    this.agentToken = resolveAgentToken(cfg.dataDir, this.log);
+    const openclawConfigDir = process.env.HOME ? `${process.env.HOME}/.openclaw` : "/root/.openclaw";
 
-    // If any channel is type "openclaw", spawn the embedded gateway. The
-    // forward-skill posts inbound events back to msg-center on this exact
-    // baseUrl + auto-issued internal token (same token used to authenticate
-    // the inbound webhook below).
+    // If any channel is type "openclaw", spawn the embedded gateway. Inbound
+    // is routed to msg-center's agent endpoint per account (configured at
+    // provision time, see channels/control.ts + openclaw/provision.ts).
     if (this.registry.openclawConfigs.length > 0) {
-      const internalInboundToken =
-        cfg.channels.find((c) => c.inboundToken)?.inboundToken ?? newToken("oci");
-      // Propagate the auto-token onto any openclaw channel that didn't set one
-      // — the inbound webhook handler reads it from cfg.channels.
-      for (const c of cfg.channels) {
-        if (c.type === "openclaw" && !c.inboundToken) c.inboundToken = internalInboundToken;
-      }
       this.supervisor = new OpenClawSupervisor({
         log: this.log,
-        msgcenterUrl: `http://127.0.0.1:${cfg.port}`,
-        inboundToken: internalInboundToken,
-        configDir: process.env.HOME ? `${process.env.HOME}/.openclaw` : "/root/.openclaw",
+        configDir: openclawConfigDir,
         plugins: pluginsFor(this.registry.openclawConfigs.map((c) => c.openclawChannel!)),
       });
     } else {
       this.supervisor = null;
     }
 
-    this.botControl = new BotControl(cfg, this.log, this.supervisor);
+    this.botControl = new BotControl(cfg, this.log, this.supervisor, {
+      msgcenterPort: cfg.port,
+      agentToken: this.agentToken,
+      configDir: openclawConfigDir,
+    });
     this.stream = new StreamHub();
     this.attachments = new Attachments(cfg, this.store);
     this.webhooks = new WebhookDispatcher(this.store, this.log);
@@ -129,6 +128,7 @@ export class App {
     registerInboundRoutes(server);
     registerAdminRoutes(server);
     registerBotRoutes(server);
+    registerAgentRoutes(server);
 
     const webDir = path.resolve(__dirname, "../web");
     await server.register(fastifyStatic, { root: webDir, prefix: "/", index: ["index.html"] });

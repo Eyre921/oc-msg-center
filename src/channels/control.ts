@@ -3,6 +3,7 @@ import type { Logger } from "../logger.ts";
 import type { Bot } from "../types.ts";
 import type { OpenClawSupervisor } from "../openclaw/supervisor.ts";
 import { exec } from "../openclaw/exec.ts";
+import { configureAccountAgent, removeAccountAgent } from "../openclaw/provision.ts";
 import { spawn } from "node:child_process";
 
 export interface ProvisionResult {
@@ -22,6 +23,12 @@ export interface ProvisionResult {
  *
  * - `webhook` channels: POST to an external bridge's /bots endpoint.
  */
+export interface ProvisionContext {
+  msgcenterPort: number;
+  agentToken: string;
+  configDir: string;
+}
+
 export class BotControl {
   readonly wechatLogins = new WeChatLoginSessions();
 
@@ -29,7 +36,22 @@ export class BotControl {
     private readonly cfg: Config,
     private readonly log: Logger,
     private readonly supervisor: OpenClawSupervisor | null,
+    private readonly ctx: ProvisionContext,
   ) {}
+
+  /** Configure msg-center as the agent for (channelId, accountId) and restart. */
+  private async wireAgent(channelId: string, openclawChannel: string, accountId: string): Promise<void> {
+    await configureAccountAgent({
+      channelId,
+      openclawChannel,
+      accountId,
+      msgcenterPort: this.ctx.msgcenterPort,
+      agentToken: this.ctx.agentToken,
+      configDir: this.ctx.configDir,
+      log: this.log,
+    });
+    await this.supervisor?.restart();
+  }
 
   async provision(bot: Bot): Promise<ProvisionResult> {
     const cc = this.cfg.channels.find((c) => c.id === bot.channel);
@@ -47,6 +69,7 @@ export class BotControl {
     if (cc.type === "openclaw") {
       const oc = cc.openclawChannel ?? channel;
       try {
+        await removeAccountAgent({ channelId: channel, accountId });
         await exec("openclaw", ["channels", "remove", "--channel", oc, "--account", accountId], {
           allowFailure: true,
           timeoutMs: 30_000,
@@ -88,16 +111,22 @@ export class BotControl {
           "--token",
           `${appId}:${secret}`,
         ], { timeoutMs: 30_000 });
-        await this.supervisor?.restart();
+        // Route this account's inbound to msg-center, then restart the gateway.
+        await this.wireAgent(bot.channel, openclawChannel, bot.accountId);
         return { ok: true };
       } catch (err) {
         return { ok: false, error: (err as Error).message };
       }
     }
 
-    // WeChat: kick off a non-blocking QR login. UI polls /api/v1/bots/:id/qr until ready.
+    // WeChat: kick off a non-blocking QR login. After the scan completes we
+    // wire the agent route + restart (see onSuccess).
     if (openclawChannel.includes("weixin")) {
-      const sessionId = this.wechatLogins.start(openclawChannel, bot, this.log);
+      const sessionId = this.wechatLogins.start(openclawChannel, bot, this.log, () =>
+        this.wireAgent(bot.channel, openclawChannel, bot.accountId).catch((err) =>
+          this.log.error({ err: (err as Error).message }, "weixin post-login agent wiring failed"),
+        ),
+      );
       return { ok: true, sessionId };
     }
 
@@ -136,7 +165,7 @@ export class BotControl {
 export class WeChatLoginSessions {
   private readonly sessions = new Map<string, WeChatSession>();
 
-  start(openclawChannel: string, bot: Bot, log: Logger): string {
+  start(openclawChannel: string, bot: Bot, log: Logger, onSuccess?: () => void): string {
     const id = `${bot.channel}:${bot.accountId}`;
     const existing = this.sessions.get(id);
     if (existing && existing.status === "pending") return id;
@@ -159,6 +188,7 @@ export class WeChatLoginSessions {
       sess.status = code === 0 ? "ok" : "failed";
       sess.exitCode = code ?? -1;
       log.info({ accountId: bot.accountId, code }, "weixin login session ended");
+      if (code === 0 && onSuccess) onSuccess();
     });
     sess.child = child;
     return id;

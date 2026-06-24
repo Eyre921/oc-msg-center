@@ -109,7 +109,7 @@ export class Inbound {
       attachmentId: evt.attachmentId ?? null,
       tags: ["inbound", evt.channel],
     });
-    return { userId: user.id, action: "message" };
+    return { userId: user.id, action: "message", reply: this.cfg.inboundAck || undefined };
   }
 
   private welcome(username?: string): string {

@@ -126,6 +126,53 @@ describe("oc-msg-center smoke", () => {
     expect(pub.ok).toBe(true);
   });
 
+  it("agent endpoint: openclaw-style chat completion streams a reply", async () => {
+    // Create a user + console bot, pre-bind an identity so the endpoint can
+    // skip the openclaw `directory peers` lookup.
+    const user = (await (
+      await fetch(`${baseUrl}/api/v1/users`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${adminToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ username: "carol" }),
+      })
+    ).json()) as { id: string };
+    const bot = (await (
+      await fetch(`${baseUrl}/api/v1/bots`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${adminToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ userId: user.id, channel: "console", accountId: "carol-console", credentials: {} }),
+      })
+    ).json()) as { id: string };
+    app.store.upsertIdentity(user.id, "console", "carol-console", "carol-openid", "Carol", bot.id);
+
+    // Simulate openclaw posting an inbound "/whoami" as an OpenAI chat completion.
+    const res = await fetch(`${baseUrl}/v1/acct/console/carol-console/chat/completions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${app.agentToken}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "msgcenter",
+        stream: true,
+        messages: [{ role: "user", content: "[console Carol 12:00] Carol: /whoami" }],
+      }),
+    });
+    expect(res.ok).toBe(true);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const text = await res.text();
+    expect(text).toContain("data: ");
+    expect(text).toContain("[DONE]");
+    // The reply should contain the username (from /whoami).
+    expect(text).toContain("carol");
+  });
+
+  it("agent endpoint rejects a bad token", async () => {
+    const res = await fetch(`${baseUrl}/v1/acct/console/carol-console/chat/completions`, {
+      method: "POST",
+      headers: { authorization: "Bearer wrong", "content-type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }),
+    });
+    expect(res.status).toBe(401);
+  });
+
   it("ntfy-style POST /:topic accepts raw bodies", async () => {
     const res = await fetch(`${baseUrl}/disk-alerts`, {
       method: "POST",

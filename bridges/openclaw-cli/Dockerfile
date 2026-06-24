@@ -23,5 +23,6 @@ RUN npm install --omit=dev --no-audit --no-fund
 COPY bridge.mjs entrypoint.sh forward-skill.js ./
 RUN chmod +x entrypoint.sh
 
-EXPOSE 7081
+EXPOSE 7081 7082
+VOLUME ["/root/.openclaw"]
 ENTRYPOINT ["./entrypoint.sh"]

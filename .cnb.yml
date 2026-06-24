@@ -19,7 +19,7 @@
     script: |
       docker buildx version >/dev/null 2>&1 || apk add --no-cache docker-cli-buildx
       docker buildx version
-  - name: docker buildx build & push (amd64 native)
+  - name: docker buildx build & push center (amd64 native)
     script: |
       set -eu
       SHA="${CNB_COMMIT:0:7}"
@@ -34,6 +34,20 @@
         --label org.opencontainers.image.description="Self-hosted notification hub for QQ / WeChat via OpenClaw plugins" \
         --push \
         .
+  - name: docker buildx build & push bridge (amd64 native)
+    script: |
+      set -eu
+      SHA="${CNB_COMMIT:0:7}"
+      REF="${CNB_BRANCH}"
+      docker buildx build --platform linux/amd64 \
+        -t "${IMAGE}:bridge-${REF}-amd64" \
+        -t "${IMAGE}:bridge-sha-${SHA}-amd64" \
+        --label org.opencontainers.image.source="https://cnb.cool/${CNB_REPO_SLUG}" \
+        --label org.opencontainers.image.revision="${CNB_COMMIT}" \
+        --label org.opencontainers.image.title="oc-msg-center-bridge" \
+        --label org.opencontainers.image.description="Sidecar that wraps openclaw CLI as an HTTP bridge for oc-msg-center" \
+        --push \
+        bridges/openclaw-cli
   - name: signal amd64 done
     type: cnb:resolve
     options:
@@ -45,7 +59,7 @@
     script: |
       docker buildx version >/dev/null 2>&1 || apk add --no-cache docker-cli-buildx
       docker buildx version
-  - name: docker buildx build & push (arm64 native)
+  - name: docker buildx build & push center (arm64 native)
     script: |
       set -eu
       SHA="${CNB_COMMIT:0:7}"
@@ -60,6 +74,20 @@
         --label org.opencontainers.image.description="Self-hosted notification hub for QQ / WeChat via OpenClaw plugins" \
         --push \
         .
+  - name: docker buildx build & push bridge (arm64 native)
+    script: |
+      set -eu
+      SHA="${CNB_COMMIT:0:7}"
+      REF="${CNB_BRANCH}"
+      docker buildx build --platform linux/arm64 \
+        -t "${IMAGE}:bridge-${REF}-arm64" \
+        -t "${IMAGE}:bridge-sha-${SHA}-arm64" \
+        --label org.opencontainers.image.source="https://cnb.cool/${CNB_REPO_SLUG}" \
+        --label org.opencontainers.image.revision="${CNB_COMMIT}" \
+        --label org.opencontainers.image.title="oc-msg-center-bridge" \
+        --label org.opencontainers.image.description="Sidecar that wraps openclaw CLI as an HTTP bridge for oc-msg-center" \
+        --push \
+        bridges/openclaw-cli
   - name: signal arm64 done
     type: cnb:resolve
     options:
@@ -88,15 +116,21 @@
       script: |
         docker buildx version >/dev/null 2>&1 || apk add --no-cache docker-cli-buildx
         docker buildx version
-    - name: merge primary + sha manifest lists
+    - name: merge primary + sha manifest lists (center + bridge)
       script: |
         set -eu
         SHA="${CNB_COMMIT:0:7}"
         REF="${CNB_BRANCH}"
+        # center
         docker buildx imagetools create -t "${IMAGE}:${REF}" \
           "${IMAGE}:${REF}-amd64" "${IMAGE}:${REF}-arm64"
         docker buildx imagetools create -t "${IMAGE}:sha-${SHA}" \
           "${IMAGE}:sha-${SHA}-amd64" "${IMAGE}:sha-${SHA}-arm64"
+        # bridge
+        docker buildx imagetools create -t "${IMAGE}:bridge-${REF}" \
+          "${IMAGE}:bridge-${REF}-amd64" "${IMAGE}:bridge-${REF}-arm64"
+        docker buildx imagetools create -t "${IMAGE}:bridge-sha-${SHA}" \
+          "${IMAGE}:bridge-sha-${SHA}-amd64" "${IMAGE}:bridge-sha-${SHA}-arm64"
     - name: extra release tags (when CNB_BRANCH starts with v)
       script: |
         set -eu
@@ -119,12 +153,14 @@
             echo "branch-style ref ($CNB_BRANCH), no extra release tags"
             ;;
         esac
-    - name: merge :latest (always = latest build)
+    - name: merge :latest (always = latest build, center + bridge)
       script: |
         set -eu
         REF="${CNB_BRANCH}"
         docker buildx imagetools create -t "${IMAGE}:latest" \
           "${IMAGE}:${REF}-amd64" "${IMAGE}:${REF}-arm64"
+        docker buildx imagetools create -t "${IMAGE}:bridge-latest" \
+          "${IMAGE}:bridge-${REF}-amd64" "${IMAGE}:bridge-${REF}-arm64"
     - name: signal manifest merge done
       type: cnb:resolve
       options:

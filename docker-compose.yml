@@ -1,37 +1,52 @@
-# One-key deploy: `docker compose up -d`
+# oc-msg-center — 拿来就能用版（无需 clone 仓库）
 #
-# Default stack starts msg-center + two bridge containers (one per channel).
-# Bridges hold ZERO credentials at boot — every colleague's personal bot is
-# pushed in by msg-center via the bridge's POST /bots endpoint after you click
-# "为该用户添加机器人" in the web admin.
+# 使用方式：
+#   1) curl -O https://cnb.cool/lib/clawify/-/raw/main/docker-compose.yml
+#   2) docker compose up -d
 #
-# So: bring this up once, log in to the web admin, then add a colleague's
-# QQ AppID/Secret (or scan their WeChat QR) one user at a time.
+# 数据持久化在三个命名卷（msgcenter-data / qq-bridge-data / weixin-bridge-data），
+# 删容器不会丢；删 stack（`docker compose down -v`）才会清理。
+#
+# 默认管理员密码：首次启动随机生成并打到 msg-center 日志里。
+# 想固定？设环境变量 MSGCENTER_ADMIN_PASSWORD 即可。
 services:
   msg-center:
-    build: .
-    image: oc-msg-center:latest
+    image: docker.cnb.cool/lib/clawify:latest
     container_name: oc-msg-center
     restart: unless-stopped
+    pull_policy: always
     ports:
-      - "2586:2586"
+      - "${MSGCENTER_PORT:-2586}:2586"
     environment:
       MSGCENTER_BASE_URL: ${MSGCENTER_BASE_URL:-http://localhost:2586}
       MSGCENTER_ADMIN_USERNAME: ${MSGCENTER_ADMIN_USERNAME:-admin}
       MSGCENTER_ADMIN_PASSWORD: ${MSGCENTER_ADMIN_PASSWORD:-}
       MSGCENTER_ADMIN_TOKEN: ${MSGCENTER_ADMIN_TOKEN:-}
-      MSGCENTER_CHANNELS_FILE: /etc/msgcenter/channels.json
       MSGCENTER_WELCOME_MESSAGE: ${MSGCENTER_WELCOME_MESSAGE:-✅ 你已成功绑定运维通知中心。}
       MSGCENTER_LOG_LEVEL: ${MSGCENTER_LOG_LEVEL:-info}
+      # 渠道配置内嵌为 JSON，无需挂载外部文件。
+      MSGCENTER_CHANNELS: |
+        [
+          { "id": "qqbot", "label": "QQ", "type": "webhook", "enabled": true,
+            "sendUrl": "http://qq-bridge:7081/send",
+            "controlUrl": "http://qq-bridge:7081",
+            "sendToken": "${BRIDGE_SHARED_TOKEN:-please-change-me}",
+            "inboundToken": "${BRIDGE_SHARED_TOKEN:-please-change-me}" },
+          { "id": "weixin", "label": "微信", "type": "webhook", "enabled": true,
+            "sendUrl": "http://weixin-bridge:7082/send",
+            "controlUrl": "http://weixin-bridge:7082",
+            "sendToken": "${BRIDGE_SHARED_TOKEN:-please-change-me}",
+            "inboundToken": "${BRIDGE_SHARED_TOKEN:-please-change-me}" },
+          { "id": "console", "label": "Console (本地测试)", "type": "console", "enabled": true }
+        ]
     volumes:
       - msgcenter-data:/data
-      - ./channels.json:/etc/msgcenter/channels.json:ro
 
   qq-bridge:
-    build: ./bridges/openclaw-cli
-    image: oc-msg-center-bridge:latest
+    image: docker.cnb.cool/lib/clawify:bridge-latest
     container_name: oc-msg-center-qq
     restart: unless-stopped
+    pull_policy: always
     depends_on: [msg-center]
     environment:
       BRIDGE_CHANNEL_ID: qqbot
@@ -44,10 +59,10 @@ services:
     expose: ["7081"]
 
   weixin-bridge:
-    build: ./bridges/openclaw-cli
-    image: oc-msg-center-bridge:latest
+    image: docker.cnb.cool/lib/clawify:bridge-latest
     container_name: oc-msg-center-weixin
     restart: unless-stopped
+    pull_policy: always
     depends_on: [msg-center]
     environment:
       BRIDGE_CHANNEL_ID: weixin

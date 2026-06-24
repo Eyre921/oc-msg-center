@@ -61,19 +61,41 @@
 - 想换底层（不用 openclaw）？只重写 bridge —— msg-center 一行不动。完整契约见
   [`docs/BRIDGE.md`](docs/BRIDGE.md)。
 
-## 🚀 快速开始（Docker，纯本地）
+## 🚀 拿来就能用
 
-最快验证安装：
+### 方式 A：纯 docker compose（推荐，跑全套：center + QQ bridge + WeChat bridge）
+
+不需要 clone 仓库：
 
 ```bash
-git clone https://github.com/Eyre921/oc-msg-center.git
-cd oc-msg-center
+mkdir oc-msg-center && cd oc-msg-center
+curl -O https://cnb.cool/lib/clawify/-/raw/main/docker-compose.yml
 docker compose up -d
 docker compose logs msg-center -f   # 留意打印出的随机 admin 密码
 ```
 
-打开 <http://localhost:2586>，用 `admin` + 日志里那串随机密码登录。
-此时只有一个 console 渠道，发布消息会打到容器日志里 —— 验证流程通了。
+打开 <http://localhost:2586>，用 `admin` + 日志里那串随机密码登录即可。
+
+### 方式 B：单容器（只要 center 本体，console 渠道做 smoke test）
+
+```bash
+docker run -d --name oc-msg-center \
+  -p 2586:2586 \
+  -v msgcenter-data:/data \
+  -e MSGCENTER_ADMIN_PASSWORD=your-pw \
+  docker.cnb.cool/lib/clawify:latest
+```
+
+### 💾 数据持久化
+
+| 卷 | 容器内路径 | 保存什么 |
+|---|---|---|
+| `msgcenter-data` | `/data` | SQLite 数据库（用户/分组/订阅/消息）、附件 |
+| `qq-bridge-data` | `/root/.openclaw` | QQ 多 bot 的 token 缓存、openclaw 插件状态 |
+| `weixin-bridge-data` | `/root/.openclaw` | 微信扫码登录后的会话凭据 |
+
+升级镜像（`docker compose pull && docker compose up -d`）或重启容器不会丢数据；只有
+`docker compose down -v` 才会清掉命名卷。**生产部署务必 backup 这三个卷**。
 
 ### 为同事 A 加 QQ 机器人
 

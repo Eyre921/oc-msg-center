@@ -8,16 +8,40 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    INTEGER NOT NULL
 );
 
+-- A bot is a per-(user, channel) credential set. Every colleague gets their
+-- OWN bot for each platform we want to reach them on. accountId is the
+-- handle the bridge / openclaw runtime uses to address it (e.g. "default",
+-- "alice-qq", "bob-weixin").
+CREATE TABLE IF NOT EXISTS bots (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel         TEXT NOT NULL,
+  account_id      TEXT NOT NULL,
+  label           TEXT,
+  credentials_json TEXT NOT NULL DEFAULT '{}',
+  status          TEXT NOT NULL DEFAULT 'pending',
+  last_seen_at    INTEGER,
+  created_at      INTEGER NOT NULL,
+  UNIQUE(channel, account_id)
+);
+CREATE INDEX IF NOT EXISTS idx_bots_user ON bots(user_id);
+
+-- An identity is a (channel, account_id, external_id) → user binding.
+-- account_id matters because the same person's openid is different across
+-- different QQ bots, and the same external_id can collide across accounts.
 CREATE TABLE IF NOT EXISTS identities (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  bot_id       TEXT REFERENCES bots(id) ON DELETE SET NULL,
   channel      TEXT NOT NULL,
+  account_id   TEXT NOT NULL DEFAULT 'default',
   external_id  TEXT NOT NULL,
   display_name TEXT,
   created_at   INTEGER NOT NULL,
-  UNIQUE(channel, external_id)
+  UNIQUE(channel, account_id, external_id)
 );
 CREATE INDEX IF NOT EXISTS idx_identities_user ON identities(user_id);
+CREATE INDEX IF NOT EXISTS idx_identities_bot ON identities(bot_id);
 
 CREATE TABLE IF NOT EXISTS topics (
   name       TEXT PRIMARY KEY,
@@ -101,8 +125,10 @@ CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id);
 CREATE TABLE IF NOT EXISTS bindings (
   code        TEXT PRIMARY KEY,
   user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  bot_id      TEXT REFERENCES bots(id) ON DELETE CASCADE,
   status      TEXT NOT NULL DEFAULT 'pending',
   channel     TEXT,
+  account_id  TEXT,
   external_id TEXT,
   created_at  INTEGER NOT NULL,
   expires_at  INTEGER NOT NULL

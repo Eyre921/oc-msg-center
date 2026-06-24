@@ -26,6 +26,8 @@ export interface ChannelConfig {
   sendToken?: string;
   /** webhook: bearer token the bridge must present on inbound POSTs (authenticates bridge -> center). */
   inboundToken?: string;
+  /** webhook: URL the center POSTs to manage bot accounts (provision/revoke). Optional. */
+  controlUrl?: string;
 }
 
 export interface Config {
@@ -114,6 +116,7 @@ function loadChannels(): ChannelConfig[] {
       sendUrl: ch.sendUrl,
       sendToken: ch.sendToken,
       inboundToken: ch.inboundToken,
+      controlUrl: ch.controlUrl,
     };
   });
 }

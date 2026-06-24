@@ -18,13 +18,15 @@
 
 ## ✨ 为什么是它
 
+- **每人一对机器人**：自己一对（QQ + 微信），每个同事各一对。msg-center 帮你统一管理
+  N 副凭据 —— web UI 一个一个加，不需要谁去手抄 AppID/Secret。
 - **ntfy 的开发体验**，但出口是 QQ / 微信而不是 App 推送 —— 国内运维更顺手。
 - **复用现成轮子**：底层走 [openclaw-qqbot](https://github.com/Eyre921/openclaw-qqbot) /
   [openclaw-weixin](https://github.com/Eyre921/openclaw-weixin) 两个插件，QQ 协议、
-  iLink 长轮询、扫码登录、CDN 文件加密……这些脏活都不用 oc-msg-center 重做一遍。
-- **管理员驱动的订阅模型**：用户不能自助订阅，订阅与分组分配权全在管理员手里。
-  扫完码用户只看到「✅ 已绑定」，等管理员把他加进对应分组就开始收消息。
-- **反向通信**：用户在 QQ / 微信里发给机器人的消息、文件、语音，会被自动回传到
+  iLink 长轮询、扫码登录、CDN 文件加密…… 这些脏活都不用 oc-msg-center 重做一遍。
+- **管理员驱动的订阅模型**：用户不能自助订阅；订阅、分组、机器人凭据，全由管理员分配。
+  绑定完成后对方只看到「✅ 已绑定」，等管理员把他加进对应分组就开始收消息。
+- **反向通信**：同事在自己的 QQ / 微信里发给机器人的消息、文件、语音，会被自动回传到
   消息中心，落到该用户的 inbox 主题，前端实时显示，也能通过 webhook 转出去。
 - **Markdown / 富媒体**：在 QQ 下消息会被插件渲染为 Markdown（标题、列表、代码块），
   附件直接通过 CDN 下发；微信侧自动转换为图片 / 文件消息。
@@ -33,33 +35,31 @@
 ## 🧱 架构
 
 ```
-┌──────────────────────────┐    POST /api/v1/publish     ┌────────────────────┐
-│  你的报警 / 脚本 / 系统    │ ──────────────────────────▶ │   oc-msg-center    │
-└──────────────────────────┘                              │  (Fastify + SQLite)│
-                                                          │  - users / groups   │
-   QQ / WeChat 用户  ◀───┐                                │  - topics / subs    │
-       │ 扫码 / 发消息    │                                │  - SSE / WS         │
-       ▼                 │                                │  - outbound webhook │
-┌──────────────────────────┐  POST /send (msg)            └─────────┬──────────┘
-│ openclaw-qqbot  / weixin │ ◀───────────────────────────────────────┤
-│  ┌─ bridge sidecar ─┐    │  POST /inbound (reverse msg)            │
-│  │  - exposes /send │    │ ───────────────────────────────────────▶ │
-│  │  - forwards      │    │                                          │
-│  └──────────────────┘    │                                          │
-└──────────────────────────┘                                          │
-                                                                      ▼
-                                                          ┌──────────────────────┐
-                                                          │  你的运维同事 (浏览器)│
-                                                          │  /web 管理台 + 实时流│
-                                                          └──────────────────────┘
+                                     +──── oc-msg-center ──────────+
+   报警 / 脚本 / Prometheus webhook   │ Fastify · SQLite             │
+   ─── POST /api/v1/publish ────────▶│ users / bots / groups        │
+                                     │ topics / subs / messages     │◀── 浏览器：管理台
+                                     │ SSE · WS · 出站 webhook       │     /web 实时流
+                                     +──────┬───────────────┬───────+
+                                            │ /send         │ POST /inbound
+                                            │ /bots         │ ▲
+                                            ▼               │
+                                   ┌─ qq-bridge ─┐  ┌─ weixin-bridge ─┐
+                                   │ 托管 N 个    │  │ 托管 N 个        │
+                                   │ QQ accounts │  │ 微信 accounts    │
+                                   │ openclaw-qqbot│ openclaw-weixin  │
+                                   └──────┬──────┘  └────────┬────────┘
+                                          ▼                  ▼
+                                  Alice 的 QQ bot      Alice 的微信 bot
+                                  Bob 的 QQ bot        Bob 的微信 bot
+                                       ……                  ……
 ```
 
-`oc-msg-center` 本身**不与 QQ / 微信直接通信**。所有出站消息通过一个轻量的桥接 sidecar
-转给 openclaw 插件，反向同理。这样：
-
-1. 升级 QQ / 微信 协议时，更新 openclaw 插件即可，center 不用改。
-2. 你可以接入除 QQ / 微信 之外的任何渠道（Slack、企微、飞书、Telegram……），只要写一个
-   同构的 bridge —— 协议见 [`docs/BRIDGE.md`](docs/BRIDGE.md)。
+- 同事 A、B、C 各自有自己的 QQ 机器人和自己的微信机器人，**互不相干**。
+- 每个 bridge 容器内部是 openclaw runtime（多账户模式），账户由 msg-center 通过控制平面
+  动态推入；凭据从来不写在容器 env 里。
+- 想换底层（不用 openclaw）？只重写 bridge —— msg-center 一行不动。完整契约见
+  [`docs/BRIDGE.md`](docs/BRIDGE.md)。
 
 ## 🚀 快速开始（Docker，纯本地）
 
@@ -75,39 +75,27 @@ docker compose logs msg-center -f   # 留意打印出的随机 admin 密码
 打开 <http://localhost:2586>，用 `admin` + 日志里那串随机密码登录。
 此时只有一个 console 渠道，发布消息会打到容器日志里 —— 验证流程通了。
 
-### 接入 QQ
+### 为同事 A 加 QQ 机器人
 
-1. 去 [QQ 开放平台](https://q.qq.com/) 创建机器人，拿到 **AppID** 和 **AppSecret**。
-2. 复制 `.env.example` 为 `.env`，填入 `QQBOT_APPID` / `QQBOT_SECRET`。
-3. 编辑 `channels.json`：
+1. 用同事 A 的 QQ 号登录 [QQ 开放平台](https://q.qq.com/)，创建一个机器人，拿到
+   **AppID** / **AppSecret**。这一步和 openclaw-qqbot 的流程完全一样，没有捷径 ——
+   腾讯就是要求每个 bot 有自己的一对 key。
+2. 打开 msg-center 管理台 → **用户** → 找到 A → **+ 添加机器人** → 选「QQ」→ 填一个唯一
+   的 `accountId`（如 `alice-qq`） + AppID + AppSecret → 创建。
+3. msg-center 会把这副凭据 POST 到 qq-bridge，bridge 调 `openclaw channels add
+   --account alice-qq --token ...`，状态变为 **active**。
+4. 同行 A 拿手机 QQ 把刚创建的机器人加为好友。点 **生成绑定码** → 把 8 位码发给他 ——
+   他用自己 QQ 给那个 bot 发一句 `BIND XXXXXXXX`，瞬间绑定完成。
 
-   ```json
-   [
-     {
-       "id": "qqbot",
-       "label": "QQ",
-       "type": "webhook",
-       "sendUrl": "http://qq-bridge:7081/send",
-       "sendToken": "${QQ_SEND_TOKEN}",
-       "inboundToken": "${QQ_INBOUND_TOKEN}"
-     }
-   ]
-   ```
+为同事 B、C…… 各重复一次，每人一对独立凭据。
 
-4. 在 `docker-compose.yml` 中取消 `qq-bridge` 服务的注释。
-5. `docker compose up -d` 重启。
+### 为同事 A 加微信机器人
 
-> 💡 **关于 AppID/Secret**：这是腾讯 QQ 开放平台对官方机器人接入的硬性要求，不存在
-> 「跳过」的方案 —— openclaw-qqbot 也是同样的流程。**只填一次**，写在 `.env` 里。
-> 你的运维同事不需要知道这对密钥；他们只扫码即可。
+1. 管理台 → 用户 → A → **+ 添加机器人** → 选「微信」→ 起个 `accountId`（如 `alice-wx`）→ 创建。
+2. 在 weixin-bridge 容器日志里会出现一个二维码 —— 让 A 用自己手机微信扫码登录这个专属机器人。
+3. 凭据自动落盘到卷里，状态变为 **active**。生成绑定码、A 发回 `BIND XXXXXXXX` —— 完。
 
-### 接入微信
-
-1. 在 `docker-compose.yml` 中取消 `weixin-bridge` 服务的注释。
-2. 第一次启动：`docker compose up weixin-bridge`（前台），扫描容器日志里的二维码。
-3. 凭证落盘到卷里之后，正常 `docker compose up -d` 即可。
-
-微信端用的是 openclaw-weixin 的扫码登录方案，**没有 AppID/Secret**。
+> 💡 微信侧没有 AppID/Secret，纯扫码登录，靠 openclaw-weixin 的 iLink 长轮询协议。
 
 ## 🧑‍💼 给运维同事用
 

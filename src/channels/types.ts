@@ -4,7 +4,9 @@ import type { Priority } from "../types.ts";
 export interface ChannelTarget {
   /** Channel id, e.g. "qqbot". */
   channel: string;
-  /** The per-channel recipient id (QQ openid, WeChat user id, ...). */
+  /** Which bot account on that channel to send through. */
+  accountId: string;
+  /** The per-(channel, account) recipient id (QQ openid, WeChat user id, ...). */
   externalId: string;
 }
 
@@ -43,7 +45,9 @@ export interface DeliveryResult {
  */
 export interface InboundEvent {
   channel: string;
-  /** The per-channel sender id. */
+  /** Which bot account on that channel observed the event. */
+  accountId: string;
+  /** The per-(channel, account) sender id. */
   externalId: string;
   /** Optional display name of the sender. */
   displayName?: string | null;

@@ -47,19 +47,45 @@
       </section>
 
       <section class="tab" data-tab="users" hidden>
-        <h2>用户与绑定</h2>
+        <h2>用户、机器人与绑定</h2>
+        <p class="muted">
+          每个同事都有自己的机器人 —— 不是大家共用一个 bot，而是
+          <b>每人一对（QQ + 微信）独立凭据</b>。先创建用户，再为他添加专属机器人，最后让对方扫码绑定。
+        </p>
         <form id="newUserForm" class="row">
-          <input name="username" placeholder="新用户名（用于内部识别）" required />
-          <button>创建用户并生成绑定二维码</button>
+          <input name="username" placeholder="新用户名（内部识别）" required />
+          <button>创建用户</button>
         </form>
         <div id="bindBox"></div>
+        <div id="botBox"></div>
         <table id="usersTable" class="data">
           <thead>
-            <tr><th>用户名</th><th>角色</th><th>已绑定渠道</th><th>分组</th><th>操作</th></tr>
+            <tr><th>用户</th><th>角色</th><th>机器人</th><th>已绑定</th><th>分组</th><th>操作</th></tr>
           </thead>
           <tbody></tbody>
         </table>
       </section>
+
+      <dialog id="botDialog">
+        <form id="botForm" method="dialog">
+          <h3>为 <span id="botUserLabel"></span> 添加机器人</h3>
+          <label>渠道
+            <select name="channel" id="botChannel" required></select>
+          </label>
+          <label>accountId（在 openclaw 内唯一）
+            <input name="accountId" required pattern="[a-zA-Z0-9_-]+" />
+          </label>
+          <label>标签（可选）
+            <input name="label" placeholder="如 Alice 的 QQ" />
+          </label>
+          <div id="botCredsBox"></div>
+          <p class="muted" id="botCredsHelp"></p>
+          <div class="row">
+            <button value="cancel" formnovalidate class="secondary">取消</button>
+            <button value="submit">创建机器人</button>
+          </div>
+        </form>
+      </dialog>
 
       <section class="tab" data-tab="groups" hidden>
         <h2>分组</h2>

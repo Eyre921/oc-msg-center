@@ -11,12 +11,28 @@ export interface User {
   createdAt: number;
 }
 
-/** A bound external identity (a QQ openid or WeChat user id, etc.). */
-export interface Identity {
+/** A personal bot belonging to a single user on a single channel. */
+export interface Bot {
   id: string;
   userId: string;
   channel: string; // channel id, e.g. "qqbot"
-  externalId: string; // the per-channel user id used as a send target
+  accountId: string; // openclaw accountId, unique per channel
+  label: string | null;
+  status: "pending" | "active" | "disabled" | "error";
+  /** Opaque credentials JSON (QQ AppID/Secret, WeChat token …) — never returned with the secret in full. */
+  credentials: Record<string, unknown>;
+  lastSeenAt: number | null;
+  createdAt: number;
+}
+
+/** A bound external identity. Scoped by accountId because openids differ per bot. */
+export interface Identity {
+  id: string;
+  userId: string;
+  botId: string | null;
+  channel: string;
+  accountId: string;
+  externalId: string;
   displayName: string | null;
   createdAt: number;
 }
@@ -95,8 +111,11 @@ export interface ApiToken {
 export interface Binding {
   code: string;
   userId: string;
+  /** When set, the binding is locked to a specific bot — only inbound on this bot can complete it. */
+  botId: string | null;
   status: "pending" | "bound" | "expired";
   channel: string | null;
+  accountId: string | null;
   externalId: string | null;
   createdAt: number;
   expiresAt: number;

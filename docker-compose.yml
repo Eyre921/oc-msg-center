@@ -1,11 +1,12 @@
-# One-key deploy: docker compose up -d
+# One-key deploy: `docker compose up -d`
 #
-# Default stack starts JUST oc-msg-center. The two bridge containers are
-# pre-wired but commented out — uncomment + fill in your QQ AppID/AppSecret
-# (and scan a QR for WeChat) to enable real delivery.
+# Default stack starts msg-center + two bridge containers (one per channel).
+# Bridges hold ZERO credentials at boot — every colleague's personal bot is
+# pushed in by msg-center via the bridge's POST /bots endpoint after you click
+# "为该用户添加机器人" in the web admin.
 #
-# Even without the bridges enabled the center is fully functional via web,
-# SSE/WebSocket, raw HTTP POST and outbound webhooks (ntfy-style usage).
+# So: bring this up once, log in to the web admin, then add a colleague's
+# QQ AppID/Secret (or scan their WeChat QR) one user at a time.
 services:
   msg-center:
     build: .
@@ -17,13 +18,8 @@ services:
     environment:
       MSGCENTER_BASE_URL: ${MSGCENTER_BASE_URL:-http://localhost:2586}
       MSGCENTER_ADMIN_USERNAME: ${MSGCENTER_ADMIN_USERNAME:-admin}
-      # Set MSGCENTER_ADMIN_PASSWORD to pin the web password; otherwise a random
-      # password is generated on first boot and printed to docker logs.
       MSGCENTER_ADMIN_PASSWORD: ${MSGCENTER_ADMIN_PASSWORD:-}
-      # Optional headless admin token (Authorization: Bearer …)
       MSGCENTER_ADMIN_TOKEN: ${MSGCENTER_ADMIN_TOKEN:-}
-      # Channels are loaded from MSGCENTER_CHANNELS (JSON inline) or
-      # MSGCENTER_CHANNELS_FILE (path to JSON file).
       MSGCENTER_CHANNELS_FILE: /etc/msgcenter/channels.json
       MSGCENTER_WELCOME_MESSAGE: ${MSGCENTER_WELCOME_MESSAGE:-✅ 你已成功绑定运维通知中心。}
       MSGCENTER_LOG_LEVEL: ${MSGCENTER_LOG_LEVEL:-info}
@@ -31,45 +27,41 @@ services:
       - msgcenter-data:/data
       - ./channels.json:/etc/msgcenter/channels.json:ro
 
-  # ---- QQ bridge (uncomment after filling appid/secret) ----------------------
-  # qq-bridge:
-  #   build: ./bridges/openclaw-cli
-  #   image: oc-msg-center-bridge:qq
-  #   container_name: oc-msg-center-qq
-  #   restart: unless-stopped
-  #   depends_on: [msg-center]
-  #   environment:
-  #     BRIDGE_CHANNEL_ID: qqbot
-  #     BRIDGE_PORT: 7081
-  #     BRIDGE_SEND_TOKEN: ${QQ_SEND_TOKEN:-change-me}
-  #     BRIDGE_MSGCENTER_URL: http://msg-center:2586
-  #     BRIDGE_MSGCENTER_INBOUND_TOKEN: ${QQ_INBOUND_TOKEN:-change-me}
-  #     QQBOT_APPID: ${QQBOT_APPID:?set QQBOT_APPID in .env}
-  #     QQBOT_SECRET: ${QQBOT_SECRET:?set QQBOT_SECRET in .env}
-  #   volumes:
-  #     - qq-bridge-data:/root/.openclaw
-  #   expose: ["7081"]
+  qq-bridge:
+    build: ./bridges/openclaw-cli
+    image: oc-msg-center-bridge:latest
+    container_name: oc-msg-center-qq
+    restart: unless-stopped
+    depends_on: [msg-center]
+    environment:
+      BRIDGE_CHANNEL_ID: qqbot
+      BRIDGE_PORT: 7081
+      BRIDGE_SEND_TOKEN: ${BRIDGE_SHARED_TOKEN:-please-change-me}
+      BRIDGE_MSGCENTER_URL: http://msg-center:2586
+      BRIDGE_MSGCENTER_INBOUND_TOKEN: ${BRIDGE_SHARED_TOKEN:-please-change-me}
+    volumes:
+      - qq-bridge-data:/root/.openclaw
+    expose: ["7081"]
 
-  # ---- WeChat bridge (uncomment + scan QR on first run) ---------------------
-  # weixin-bridge:
-  #   build: ./bridges/openclaw-cli
-  #   image: oc-msg-center-bridge:weixin
-  #   container_name: oc-msg-center-weixin
-  #   restart: unless-stopped
-  #   depends_on: [msg-center]
-  #   environment:
-  #     BRIDGE_CHANNEL_ID: weixin
-  #     BRIDGE_PORT: 7082
-  #     BRIDGE_SEND_TOKEN: ${WEIXIN_SEND_TOKEN:-change-me}
-  #     BRIDGE_MSGCENTER_URL: http://msg-center:2586
-  #     BRIDGE_MSGCENTER_INBOUND_TOKEN: ${WEIXIN_INBOUND_TOKEN:-change-me}
-  #     BRIDGE_OPENCLAW_PLUGIN: "@tencent-weixin/openclaw-weixin"
-  #     BRIDGE_OPENCLAW_CHANNEL: openclaw-weixin
-  #   volumes:
-  #     - weixin-bridge-data:/root/.openclaw
-  #   expose: ["7082"]
-  #   stdin_open: true   # required for the first-time QR scan
-  #   tty: true
+  weixin-bridge:
+    build: ./bridges/openclaw-cli
+    image: oc-msg-center-bridge:latest
+    container_name: oc-msg-center-weixin
+    restart: unless-stopped
+    depends_on: [msg-center]
+    environment:
+      BRIDGE_CHANNEL_ID: weixin
+      BRIDGE_PORT: 7082
+      BRIDGE_SEND_TOKEN: ${BRIDGE_SHARED_TOKEN:-please-change-me}
+      BRIDGE_MSGCENTER_URL: http://msg-center:2586
+      BRIDGE_MSGCENTER_INBOUND_TOKEN: ${BRIDGE_SHARED_TOKEN:-please-change-me}
+      BRIDGE_OPENCLAW_PLUGIN: "@tencent-weixin/openclaw-weixin"
+      BRIDGE_OPENCLAW_CHANNEL: openclaw-weixin
+    volumes:
+      - weixin-bridge-data:/root/.openclaw
+    expose: ["7082"]
+    stdin_open: true
+    tty: true
 
 volumes:
   msgcenter-data:

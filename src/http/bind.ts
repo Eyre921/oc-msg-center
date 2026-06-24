@@ -11,12 +11,16 @@ import { now } from "../util/time.ts";
  * an inbound event, the inbound router completes the binding.
  */
 export function registerBindRoutes(server: FastifyInstance): void {
-  // Start a binding for a user.
+  // Start a binding for a user (optionally scoped to a specific bot).
   server.post("/api/v1/bindings", async (req, reply) => {
     try {
       const app = getApp(req);
       const admin = adminOnly(req);
-      const { userId, username } = (req.body ?? {}) as { userId?: string; username?: string };
+      const { userId, username, botId } = (req.body ?? {}) as {
+        userId?: string;
+        username?: string;
+        botId?: string;
+      };
       let target: { id: string; username: string } | null = null;
       if (userId) {
         const u = app.store.getUser(userId);
@@ -24,29 +28,37 @@ export function registerBindRoutes(server: FastifyInstance): void {
       } else if (username) {
         const u = app.store.getUserByUsername(username);
         if (u) target = u;
-        else {
-          const created = app.store.createUser(username, null, "user");
-          target = created;
-        }
+        else target = app.store.createUser(username, null, "user");
       } else {
         return reply.code(400).send({ error: "userId or username required" });
       }
       if (!target) return reply.code(404).send({ error: "user not found" });
 
+      let bot = null;
+      if (botId) {
+        bot = app.store.getBot(botId);
+        if (!bot || bot.userId !== target.id)
+          return reply.code(400).send({ error: "bot does not belong to user" });
+      }
+
       const code = randomCode(8);
       const expiresAt = now() + app.cfg.bindingTtlSeconds;
-      app.store.createBinding(code, target.id, expiresAt);
+      app.store.createBinding(code, target.id, bot?.id ?? null, expiresAt);
       const sample = `BIND ${code}`;
       const qrPng = await QRCode.toDataURL(sample, { width: 320, margin: 1 });
       return reply.send({
         code,
         userId: target.id,
         username: target.username,
+        botId: bot?.id ?? null,
+        botChannel: bot?.channel ?? null,
+        botLabel: bot?.label ?? null,
         sampleMessage: sample,
         expiresAt,
         qr: qrPng,
-        instructions:
-          "请在 QQ / 微信 中向已部署的机器人发送上面的「sampleMessage」文本，或直接发送 8 位绑定码完成绑定。",
+        instructions: bot
+          ? `请用你的【${bot.label ?? bot.channel}】机器人发送绑定码「${code}」 完成绑定。`
+          : "请向你的个人机器人发送绑定码完成绑定。",
         startedBy: admin.username,
       });
     } catch (err) {

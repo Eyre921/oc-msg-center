@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getApp, handleError } from "./helpers.ts";
 
 const InboundBody = z.object({
+  accountId: z.string().min(1).default("default"),
   externalId: z.string().min(1),
   displayName: z.string().nullish(),
   text: z.string().nullish(),
@@ -41,6 +42,7 @@ export function registerInboundRoutes(server: FastifyInstance): void {
       const body = InboundBody.parse(req.body ?? {});
       const result = await app.inbound.handle({
         channel: id,
+        accountId: body.accountId,
         externalId: body.externalId,
         displayName: body.displayName ?? null,
         text: body.text ?? null,

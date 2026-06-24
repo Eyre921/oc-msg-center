@@ -9,6 +9,7 @@ import type { Config } from "./config.ts";
 import { createLogger, type Logger } from "./logger.ts";
 import { Store } from "./db/store.ts";
 import { ChannelRegistry } from "./channels/registry.ts";
+import { BotControl } from "./channels/control.ts";
 import { StreamHub } from "./core/stream.ts";
 import { Attachments } from "./core/attachments.ts";
 import { WebhookDispatcher } from "./core/webhooks.ts";
@@ -23,6 +24,7 @@ import { registerFileRoutes } from "./http/files.ts";
 import { registerBindRoutes } from "./http/bind.ts";
 import { registerInboundRoutes } from "./http/inbound.ts";
 import { registerAdminRoutes } from "./http/admin.ts";
+import { registerBotRoutes } from "./http/bots.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,6 +33,7 @@ export class App {
   readonly log: Logger;
   readonly store: Store;
   readonly registry: ChannelRegistry;
+  readonly botControl: BotControl;
   readonly stream: StreamHub;
   readonly attachments: Attachments;
   readonly webhooks: WebhookDispatcher;
@@ -45,6 +48,7 @@ export class App {
     this.store = new Store(cfg.dbPath);
     ensureAdmin(cfg, this.store, this.log);
     this.registry = new ChannelRegistry(cfg.channels, this.log);
+    this.botControl = new BotControl(cfg, this.log);
     this.stream = new StreamHub();
     this.attachments = new Attachments(cfg, this.store);
     this.webhooks = new WebhookDispatcher(this.store, this.log);
@@ -64,7 +68,7 @@ export class App {
 
   async start(): Promise<void> {
     const server = Fastify({
-      logger: this.log,
+      loggerInstance: this.log,
       bodyLimit: this.cfg.attachmentMaxBytes + 1024 * 1024,
     });
     (server as unknown as { msg: App }).msg = this;
@@ -93,6 +97,7 @@ export class App {
     registerBindRoutes(server);
     registerInboundRoutes(server);
     registerAdminRoutes(server);
+    registerBotRoutes(server);
 
     const webDir = path.resolve(__dirname, "../web");
     await server.register(fastifyStatic, { root: webDir, prefix: "/", index: ["index.html"] });

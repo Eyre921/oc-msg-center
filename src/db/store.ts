@@ -8,6 +8,7 @@ import type {
   ApiToken,
   Attachment,
   Binding,
+  Bot,
   Group,
   Identity,
   Message,
@@ -70,37 +71,98 @@ export class Store {
     this.db.prepare("DELETE FROM users WHERE id = ?").run(id);
   }
 
+  // ---- bots -----------------------------------------------------------------
+
+  createBot(b: Omit<Bot, "id" | "createdAt" | "lastSeenAt">): Bot {
+    const id = uid("bot");
+    const ts = now();
+    this.db
+      .prepare(
+        "INSERT INTO bots (id, user_id, channel, account_id, label, credentials_json, status, created_at) VALUES (?,?,?,?,?,?,?,?)",
+      )
+      .run(id, b.userId, b.channel, b.accountId, b.label, JSON.stringify(b.credentials), b.status, ts);
+    return { id, createdAt: ts, lastSeenAt: null, ...b };
+  }
+
+  getBot(id: string): Bot | null {
+    return mapBot(this.db.prepare("SELECT * FROM bots WHERE id = ?").get(id) as Row);
+  }
+
+  getBotByAccount(channel: string, accountId: string): Bot | null {
+    return mapBot(
+      this.db
+        .prepare("SELECT * FROM bots WHERE channel = ? AND account_id = ?")
+        .get(channel, accountId) as Row,
+    );
+  }
+
+  listBotsForUser(userId: string): Bot[] {
+    return (this.db.prepare("SELECT * FROM bots WHERE user_id = ? ORDER BY created_at").all(userId) as Row[]).map(
+      (r) => mapBot(r)!,
+    );
+  }
+
+  listAllBots(): Bot[] {
+    return (this.db.prepare("SELECT * FROM bots ORDER BY created_at").all() as Row[]).map((r) => mapBot(r)!);
+  }
+
+  updateBotStatus(id: string, status: Bot["status"], touch = true): void {
+    if (touch) this.db.prepare("UPDATE bots SET status = ?, last_seen_at = ? WHERE id = ?").run(status, now(), id);
+    else this.db.prepare("UPDATE bots SET status = ? WHERE id = ?").run(status, id);
+  }
+
+  updateBotCredentials(id: string, credentials: Record<string, unknown>): void {
+    this.db.prepare("UPDATE bots SET credentials_json = ? WHERE id = ?").run(JSON.stringify(credentials), id);
+  }
+
+  deleteBot(id: string): void {
+    this.db.prepare("DELETE FROM bots WHERE id = ?").run(id);
+  }
+
   // ---- identities -----------------------------------------------------------
 
-  upsertIdentity(userId: string, channel: string, externalId: string, displayName: string | null): Identity {
-    const existing = this.getIdentity(channel, externalId);
+  upsertIdentity(
+    userId: string,
+    channel: string,
+    accountId: string,
+    externalId: string,
+    displayName: string | null,
+    botId: string | null = null,
+  ): Identity {
+    const existing = this.getIdentity(channel, accountId, externalId);
     if (existing) {
       this.db
-        .prepare("UPDATE identities SET user_id = ?, display_name = ? WHERE id = ?")
-        .run(userId, displayName, existing.id);
-      return { ...existing, userId, displayName };
+        .prepare("UPDATE identities SET user_id = ?, display_name = ?, bot_id = ? WHERE id = ?")
+        .run(userId, displayName, botId, existing.id);
+      return { ...existing, userId, displayName, botId };
     }
     const id = uid("idn");
     const ts = now();
     this.db
       .prepare(
-        "INSERT INTO identities (id, user_id, channel, external_id, display_name, created_at) VALUES (?,?,?,?,?,?)",
+        "INSERT INTO identities (id, user_id, bot_id, channel, account_id, external_id, display_name, created_at) VALUES (?,?,?,?,?,?,?,?)",
       )
-      .run(id, userId, channel, externalId, displayName, ts);
-    return { id, userId, channel, externalId, displayName, createdAt: ts };
+      .run(id, userId, botId, channel, accountId, externalId, displayName, ts);
+    return { id, userId, botId, channel, accountId, externalId, displayName, createdAt: ts };
   }
 
-  getIdentity(channel: string, externalId: string): Identity | null {
+  getIdentity(channel: string, accountId: string, externalId: string): Identity | null {
     const row = this.db
-      .prepare("SELECT * FROM identities WHERE channel = ? AND external_id = ?")
-      .get(channel, externalId) as Row;
+      .prepare("SELECT * FROM identities WHERE channel = ? AND account_id = ? AND external_id = ?")
+      .get(channel, accountId, externalId) as Row;
     return mapIdentity(row);
   }
 
+  /** All identities a user has been bound on. */
   listIdentitiesForUser(userId: string): Identity[] {
     return (this.db.prepare("SELECT * FROM identities WHERE user_id = ?").all(userId) as Row[]).map(
       (r) => mapIdentity(r)!,
     );
+  }
+
+  /** Identity bound on a specific bot (a user has at most one). */
+  getIdentityForBot(botId: string): Identity | null {
+    return mapIdentity(this.db.prepare("SELECT * FROM identities WHERE bot_id = ? LIMIT 1").get(botId) as Row);
   }
 
   deleteIdentity(id: string): void {
@@ -352,12 +414,24 @@ export class Store {
 
   // ---- bindings -------------------------------------------------------------
 
-  createBinding(code: string, userId: string, expiresAt: number): Binding {
+  createBinding(code: string, userId: string, botId: string | null, expiresAt: number): Binding {
     const ts = now();
     this.db
-      .prepare("INSERT INTO bindings (code, user_id, status, created_at, expires_at) VALUES (?,?,?,?,?)")
-      .run(code, userId, "pending", ts, expiresAt);
-    return { code, userId, status: "pending", channel: null, externalId: null, createdAt: ts, expiresAt };
+      .prepare(
+        "INSERT INTO bindings (code, user_id, bot_id, status, created_at, expires_at) VALUES (?,?,?,?,?,?)",
+      )
+      .run(code, userId, botId, "pending", ts, expiresAt);
+    return {
+      code,
+      userId,
+      botId,
+      status: "pending",
+      channel: null,
+      accountId: null,
+      externalId: null,
+      createdAt: ts,
+      expiresAt,
+    };
   }
 
   getBinding(code: string): Binding | null {
@@ -365,10 +439,12 @@ export class Store {
     return mapBinding(row);
   }
 
-  completeBinding(code: string, channel: string, externalId: string): void {
+  completeBinding(code: string, channel: string, accountId: string, externalId: string): void {
     this.db
-      .prepare("UPDATE bindings SET status = 'bound', channel = ?, external_id = ? WHERE code = ?")
-      .run(channel, externalId, code);
+      .prepare(
+        "UPDATE bindings SET status = 'bound', channel = ?, account_id = ?, external_id = ? WHERE code = ?",
+      )
+      .run(channel, accountId, externalId, code);
   }
 
   // ---- deliveries -----------------------------------------------------------
@@ -392,9 +468,32 @@ function mapIdentity(r: Row): Identity | null {
   return {
     id: r.id,
     userId: r.user_id,
+    botId: r.bot_id ?? null,
     channel: r.channel,
+    accountId: r.account_id ?? "default",
     externalId: r.external_id,
     displayName: r.display_name ?? null,
+    createdAt: r.created_at,
+  };
+}
+
+function mapBot(r: Row): Bot | null {
+  if (!r) return null;
+  let creds: Record<string, unknown> = {};
+  try {
+    creds = JSON.parse(r.credentials_json ?? "{}");
+  } catch {
+    // ignore parse failure
+  }
+  return {
+    id: r.id,
+    userId: r.user_id,
+    channel: r.channel,
+    accountId: r.account_id,
+    label: r.label ?? null,
+    status: r.status as Bot["status"],
+    credentials: creds,
+    lastSeenAt: r.last_seen_at ?? null,
     createdAt: r.created_at,
   };
 }
@@ -475,8 +574,10 @@ function mapBinding(r: Row): Binding | null {
   return {
     code: r.code,
     userId: r.user_id,
+    botId: r.bot_id ?? null,
     status: r.status,
     channel: r.channel ?? null,
+    accountId: r.account_id ?? null,
     externalId: r.external_id ?? null,
     createdAt: r.created_at,
     expiresAt: r.expires_at,

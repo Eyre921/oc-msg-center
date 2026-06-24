@@ -11,7 +11,13 @@ export class ConsoleChannel implements ChannelAdapter {
 
   async send(target: ChannelTarget, message: OutboundMessage): Promise<DeliveryResult> {
     this.log.info(
-      { channel: this.id, to: target.externalId, title: message.title, body: message.body },
+      {
+        channel: this.id,
+        account: target.accountId,
+        to: target.externalId,
+        title: message.title,
+        body: message.body,
+      },
       "[console channel] would deliver message",
     );
     return { ok: true };

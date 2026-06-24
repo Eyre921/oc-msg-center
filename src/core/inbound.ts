@@ -7,15 +7,16 @@ import type { Publisher } from "./publish.ts";
 import { now } from "../util/time.ts";
 
 export interface InboundResult {
-  /** Resolved user id, if the sender is/became known. */
   userId?: string;
-  /** A reply the bridge should deliver back to the sender, if any. */
   reply?: string;
-  /** What the center did with the event. */
   action: "bound" | "registered" | "command" | "message" | "ignored";
 }
 
-/** Routes inbound (reverse) channel events: binding, auto-register, commands, messages. */
+/**
+ * Inbound router. With the per-user bot fleet model the identity lookup is
+ * scoped by (channel, accountId, externalId): the bot account itself is the
+ * primary signal of who the sender is, since each colleague has their OWN bot.
+ */
 export class Inbound {
   constructor(
     private readonly cfg: Config,
@@ -27,42 +28,78 @@ export class Inbound {
 
   async handle(evt: InboundEvent): Promise<InboundResult> {
     const text = (evt.text ?? "").trim();
-    let identity = this.store.getIdentity(evt.channel, evt.externalId);
+    let identity = this.store.getIdentity(evt.channel, evt.accountId, evt.externalId);
+    const bot = this.store.getBotByAccount(evt.channel, evt.accountId);
+    if (bot) this.store.updateBotStatus(bot.id, "active");
 
-    // 1) A pending binding code completes a binding regardless of current state.
+    // 1) Binding code completes a pending bind.
     const code = this.extractBindingCode(text);
     if (code) {
       const binding = this.store.getBinding(code);
       if (binding && binding.status === "pending" && binding.expiresAt > now()) {
-        this.store.completeBinding(code, evt.channel, evt.externalId);
-        this.store.upsertIdentity(binding.userId, evt.channel, evt.externalId, evt.displayName ?? null);
+        if (binding.botId && bot && binding.botId !== bot.id) {
+          // Code was issued for a specific bot; ignore inbound on the wrong bot.
+          return { action: "ignored", reply: "绑定码与当前机器人不匹配。" };
+        }
+        this.store.completeBinding(code, evt.channel, evt.accountId, evt.externalId);
+        this.store.upsertIdentity(
+          binding.userId,
+          evt.channel,
+          evt.accountId,
+          evt.externalId,
+          evt.displayName ?? null,
+          binding.botId ?? bot?.id ?? null,
+        );
         const user = this.store.getUser(binding.userId);
-        this.log.info({ channel: evt.channel, user: binding.userId }, "identity bound via code");
+        this.log.info(
+          { channel: evt.channel, account: evt.accountId, user: binding.userId },
+          "identity bound via code",
+        );
         return { userId: binding.userId, reply: this.welcome(user?.username), action: "bound" };
       }
     }
 
-    // 2) Unknown sender → auto-register (if enabled).
+    // 2) Unknown sender on a known bot → bind to the bot's owner automatically.
+    //    (A personal bot has exactly one expected user — the colleague who owns it.)
+    if (!identity && bot) {
+      identity = this.store.upsertIdentity(
+        bot.userId,
+        evt.channel,
+        evt.accountId,
+        evt.externalId,
+        evt.displayName ?? null,
+        bot.id,
+      );
+      const user = this.store.getUser(bot.userId);
+      this.log.info({ channel: evt.channel, account: evt.accountId, user: bot.userId }, "auto-bound personal bot");
+      return { userId: bot.userId, reply: this.welcome(user?.username), action: "bound" };
+    }
+
+    // 3) Unknown bot AND unknown identity → auto-register only if allowed.
     if (!identity) {
       if (!this.cfg.channelAutoRegister) {
-        return { action: "ignored", reply: "你尚未注册到消息中心，请联系管理员获取绑定码。" };
+        return { action: "ignored", reply: "未知机器人或未注册用户。请联系管理员获取绑定码。" };
       }
       const user = this.registerNewUser(evt);
-      identity = this.store.upsertIdentity(user.id, evt.channel, evt.externalId, evt.displayName ?? null);
-      this.log.info({ channel: evt.channel, user: user.id }, "auto-registered identity");
+      identity = this.store.upsertIdentity(
+        user.id,
+        evt.channel,
+        evt.accountId,
+        evt.externalId,
+        evt.displayName ?? null,
+      );
       return { userId: user.id, reply: this.welcome(user.username), action: "registered" };
     }
 
     const user = this.store.getUser(identity.userId);
     if (!user) return { action: "ignored" };
 
-    // 3) Known sender + slash command → informational reply.
     if (text && this.commands.isCommand(text)) {
       const reply = await this.commands.handle(user, evt.channel, text);
       return { userId: user.id, reply, action: "command" };
     }
 
-    // 4) Otherwise it is a reverse message/file → republish to the user's inbox topic.
+    // Reverse message / file → republish to the user's inbox topic.
     const topic = `${this.cfg.inboxTopicPrefix}${user.id}`;
     await this.publisher.publish({
       topic,
@@ -90,7 +127,6 @@ export class Inbound {
 
   private extractBindingCode(text: string): string | null {
     if (!text) return null;
-    // strip a leading keyword like "绑定" / "bind"
     const cleaned = text.replace(/^\s*(绑定|bind)\s*/i, "");
     const m = cleaned.toUpperCase().match(/\b[0-9A-HJ-NP-TV-Z]{8}\b/);
     return m ? m[0] : null;

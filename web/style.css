@@ -70,3 +70,13 @@ pre { background: var(--panel); padding: 14px; border-radius: 8px; border: 1px s
 .group-card h3 { margin: 0 0 4px; }
 .group-card .members { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .group-card .add { display: flex; gap: 6px; }
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 20px; min-width: 360px; max-width: 90vw; }
+dialog::backdrop { background: rgba(0,0,0,0.55); }
+dialog form { gap: 12px; }
+dialog h3 { margin: 0 0 8px; }
+.bot-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.bot-row .status { font-size: 11px; padding: 1px 6px; border-radius: 999px; }
+.bot-row .status.active { background: var(--ok); color: #04210e; }
+.bot-row .status.pending { background: var(--warn); color: #2b1d00; }
+.bot-row .status.error { background: var(--danger); color: #fff; }
+.bot-row .status.disabled { background: var(--panel-2); color: var(--muted); }

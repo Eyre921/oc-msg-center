@@ -146,40 +146,58 @@ export class Publisher {
     if (recipients.length === 0) return;
     const outbound = this.toOutbound(message);
 
-    // De-duplicate recipients (a user may match more than once).
+    // De-duplicate by user; collect channel filters per user.
     const merged = new Map<string, Set<string>>();
     for (const r of recipients) {
       const set = merged.get(r.userId) ?? new Set<string>();
       for (const c of r.channels ?? []) set.add(c);
-      // an empty channel list is a sentinel for "all bound channels"
       if (!r.channels || r.channels.length === 0) set.add("*");
       merged.set(r.userId, set);
     }
 
     const jobs: Promise<void>[] = [];
     for (const [userId, channelSet] of merged) {
-      const identities = this.store.listIdentitiesForUser(userId);
-      if (identities.length === 0) continue;
+      // Each user has a fleet of personal bots — one per channel they're reachable on.
+      const bots = this.store.listBotsForUser(userId).filter((b) => b.status !== "disabled");
+      if (bots.length === 0) continue;
 
       const all = channelSet.has("*");
-      const wanted = all ? identities.map((i) => i.channel) : [...channelSet];
-
-      for (const channelId of new Set(wanted)) {
-        const adapter = this.registry.get(channelId);
+      for (const bot of bots) {
+        if (!all && !channelSet.has(bot.channel)) continue;
+        const adapter = this.registry.get(bot.channel);
         if (!adapter) continue;
-        const identity = identities.find((i) => i.channel === channelId);
-        if (!identity) continue;
+        const identity = this.store.getIdentityForBot(bot.id);
+        if (!identity) continue; // bot exists but the colleague hasn't completed binding yet
 
         jobs.push(
           adapter
-            .send({ channel: channelId, externalId: identity.externalId }, outbound)
+            .send(
+              { channel: bot.channel, accountId: bot.accountId, externalId: identity.externalId },
+              outbound,
+            )
             .then((res) => {
-              this.store.logDelivery(message.id, userId, channelId, res.ok ? "delivered" : "failed", res.error);
-              if (!res.ok) this.log.warn({ channel: channelId, err: res.error }, "channel delivery failed");
+              this.store.logDelivery(
+                message.id,
+                userId,
+                `${bot.channel}/${bot.accountId}`,
+                res.ok ? "delivered" : "failed",
+                res.error,
+              );
+              if (!res.ok)
+                this.log.warn(
+                  { channel: bot.channel, account: bot.accountId, err: res.error },
+                  "channel delivery failed",
+                );
             })
             .catch((err) => {
-              this.store.logDelivery(message.id, userId, channelId, "failed", String(err));
-              this.log.error({ channel: channelId, err: String(err) }, "channel delivery threw");
+              this.store.logDelivery(
+                message.id,
+                userId,
+                `${bot.channel}/${bot.accountId}`,
+                "failed",
+                String(err),
+              );
+              this.log.error({ err: String(err) }, "channel delivery threw");
             }),
         );
       }

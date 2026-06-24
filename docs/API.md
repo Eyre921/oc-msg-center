@@ -61,6 +61,7 @@
 | `POST` | `/api/v1/login` | 用户名+密码换 token |
 | `GET` | `/api/v1/me` | 当前主体、身份、订阅、分组 |
 | `GET` `POST` `DELETE` | `/api/v1/users[…]` | 用户 CRUD |
+| `GET` `POST` `PATCH` `DELETE` | `/api/v1/bots[…]` / `/api/v1/users/:id/bots` | 每用户的私有机器人凭据 |
 | `GET` `POST` `DELETE` | `/api/v1/groups[…]` | 分组 CRUD |
 | `POST` `DELETE` | `/api/v1/groups/:id/members[…]` | 成员管理 |
 | `POST` `DELETE` | `/api/v1/subscriptions` | 订阅分配 |

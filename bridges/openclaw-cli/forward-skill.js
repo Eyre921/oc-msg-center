@@ -33,6 +33,7 @@ module.exports = {
     }
     hook(async (msg) => {
       await forward({
+        accountId: msg.accountId ?? msg.account ?? msg.channel?.accountId ?? "default",
         externalId: msg.from?.externalId ?? msg.from?.id ?? msg.userId,
         displayName: msg.from?.displayName ?? msg.from?.name ?? null,
         text: msg.text ?? msg.content ?? null,

@@ -33,9 +33,10 @@ export function registerAdminRoutes(server: FastifyInstance): void {
       const principal = auth(req);
       const app = getApp(req);
       const identities = app.store.listIdentitiesForUser(principal.userId);
+      const bots = app.store.listBotsForUser(principal.userId);
       const subs = app.store.listSubscriptionsForUser(principal.userId);
       const groups = app.store.listGroupsForUser(principal.userId);
-      return reply.send({ principal, identities, subscriptions: subs, groups });
+      return reply.send({ principal, identities, bots, subscriptions: subs, groups });
     } catch (err) {
       return handleError(err, reply);
     }
@@ -50,6 +51,13 @@ export function registerAdminRoutes(server: FastifyInstance): void {
       const enriched = users.map((u) => ({
         ...u,
         identities: app.store.listIdentitiesForUser(u.id),
+        bots: app.store.listBotsForUser(u.id).map((b) => ({
+          id: b.id,
+          channel: b.channel,
+          accountId: b.accountId,
+          label: b.label,
+          status: b.status,
+        })),
         groups: app.store.listGroupsForUser(u.id).map((g) => g.name),
       }));
       return reply.send({ users: enriched });

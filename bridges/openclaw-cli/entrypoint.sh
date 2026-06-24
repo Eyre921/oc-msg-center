@@ -1,15 +1,13 @@
 #!/usr/bin/env sh
-# Bridge sidecar entrypoint.
+# Multi-bot bridge entrypoint.
 #
-# 1. Install the relevant openclaw channel plugin if not present.
-# 2. Configure its credentials (QQ AppID/Secret) or kick off a QR login (WeChat).
-# 3. Drop the forward-skill into openclaw so inbound events are HTTP-POSTed to us.
-# 4. Start openclaw gateway in the background.
-# 5. Start the HTTP bridge.
+# This container hosts ONE channel (qqbot OR weixin) but holds MANY bot
+# accounts. Per-user bots are pushed in by msg-center via POST /bots after
+# the operator clicks "add bot for user X" in the web admin. No credentials
+# are baked into env vars.
 
 set -e
-
-: "${BRIDGE_CHANNEL_ID:?BRIDGE_CHANNEL_ID is required (e.g. qqbot or weixin)}"
+: "${BRIDGE_CHANNEL_ID:?BRIDGE_CHANNEL_ID is required (qqbot or weixin)}"
 : "${BRIDGE_PORT:=7081}"
 : "${BRIDGE_MSGCENTER_URL:?BRIDGE_MSGCENTER_URL is required}"
 
@@ -28,24 +26,9 @@ if [ -n "$PLUGIN" ]; then
   openclaw plugins install "${PLUGIN}" || true
 fi
 
-case "$BRIDGE_CHANNEL_ID" in
-  qqbot)
-    if [ -n "$QQBOT_APPID" ] && [ -n "$QQBOT_SECRET" ]; then
-      echo "[bridge] configuring QQ channel"
-      openclaw channels add --channel qqbot --token "${QQBOT_APPID}:${QQBOT_SECRET}" || true
-    else
-      echo "[bridge][warn] QQBOT_APPID / QQBOT_SECRET not set; QQ channel will not authenticate"
-    fi
-    ;;
-  weixin)
-    if [ ! -f "/root/.openclaw/openclaw.json" ] || ! grep -q "openclaw-weixin" "/root/.openclaw/openclaw.json" 2>/dev/null; then
-      echo "[bridge] starting one-time WeChat QR login — scan the QR shown below"
-      openclaw channels login --channel "${CHANNEL}" || true
-    fi
-    ;;
-esac
-
-# Drop the forwarding skill that POSTs inbound events to this bridge.
+# Install the local forwarding skill: openclaw sees an inbound message and
+# POSTs it to http://127.0.0.1:${BRIDGE_PORT}/inbound, which the bridge then
+# relays to msg-center.
 mkdir -p /root/.openclaw/skills/msgcenter-forward
 cp /app/forward-skill.js /root/.openclaw/skills/msgcenter-forward/index.js
 cat > /root/.openclaw/skills/msgcenter-forward/openclaw.skill.json <<EOF
@@ -55,5 +38,5 @@ EOF
 echo "[bridge] starting openclaw gateway in background"
 ( openclaw gateway start --foreground 2>&1 | sed 's/^/[openclaw] /' ) &
 
-echo "[bridge] starting HTTP bridge on :${BRIDGE_PORT}"
+echo "[bridge] HTTP bridge on :${BRIDGE_PORT}, msg-center -> ${BRIDGE_MSGCENTER_URL}"
 exec node /app/bridge.mjs

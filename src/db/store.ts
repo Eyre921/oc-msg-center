@@ -293,6 +293,42 @@ export class Store {
     this.db.prepare("DELETE FROM subscriptions WHERE user_id = ? AND topic = ?").run(userId, topic);
   }
 
+  // ---- topic ↔ group subscriptions ------------------------------------------
+
+  subscribeGroupToTopic(topic: string, groupId: string, minPriority: Priority = 1): void {
+    this.db
+      .prepare(
+        "INSERT OR REPLACE INTO topic_groups (topic, group_id, min_priority, created_at) VALUES (?,?,?,?)",
+      )
+      .run(topic, groupId, minPriority, now());
+  }
+
+  unsubscribeGroupFromTopic(topic: string, groupId: string): void {
+    this.db.prepare("DELETE FROM topic_groups WHERE topic = ? AND group_id = ?").run(topic, groupId);
+  }
+
+  listGroupsForTopic(topic: string): { groupId: string; minPriority: Priority }[] {
+    return (this.db.prepare("SELECT group_id, min_priority FROM topic_groups WHERE topic = ?").all(topic) as Row[]).map(
+      (r) => ({ groupId: r.group_id, minPriority: r.min_priority as Priority }),
+    );
+  }
+
+  listTopicsForGroup(groupId: string): string[] {
+    return (this.db.prepare("SELECT topic FROM topic_groups WHERE group_id = ?").all(groupId) as Row[]).map(
+      (r) => r.topic as string,
+    );
+  }
+
+  // ---- inbound (reverse) messages across all users --------------------------
+
+  listInboundMessages(topicPrefix: string, limit = 100): Message[] {
+    return (
+      this.db
+        .prepare("SELECT * FROM messages WHERE topic LIKE ? ORDER BY created_at DESC LIMIT ?")
+        .all(topicPrefix + "%", limit) as Row[]
+    ).map((r) => mapMessage(r)!);
+  }
+
   // ---- attachments ----------------------------------------------------------
 
   createAttachment(a: Omit<Attachment, "id">): Attachment {

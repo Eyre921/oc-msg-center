@@ -4,6 +4,7 @@ import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Config } from "./config.ts";
 import { createLogger, type Logger } from "./logger.ts";
@@ -130,8 +131,18 @@ export class App {
     registerBotRoutes(server);
     registerAgentRoutes(server);
 
-    const webDir = path.resolve(__dirname, "../web");
+    // Serve the built React app. Falls back to web/ (raw) if dist is absent
+    // (e.g. running from source without a web build).
+    const distDir = path.resolve(__dirname, "../web/dist");
+    const webDir = existsSync(distDir) ? distDir : path.resolve(__dirname, "../web");
     await server.register(fastifyStatic, { root: webDir, prefix: "/", index: ["index.html"] });
+    // SPA fallback: any non-API GET that isn't a static asset returns index.html.
+    server.setNotFoundHandler((req, reply) => {
+      if (req.method === "GET" && !req.url.startsWith("/api") && !req.url.startsWith("/v1")) {
+        return reply.sendFile("index.html");
+      }
+      return reply.code(404).send({ error: "not found" });
+    });
 
     this.server = server;
     this.pruner.start();

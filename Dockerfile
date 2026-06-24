@@ -4,6 +4,16 @@
 # process. The QQ and WeChat openclaw plugins are baked in at build time so
 # first-boot is fast. Personal bot credentials (QQ AppID/Secret, WeChat
 # scan sessions) are pushed into the gateway at runtime from the web admin.
+
+# ---- stage 1: build the React admin UI ----
+FROM node:22-bookworm-slim AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json* ./
+RUN npm install --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
+
+# ---- stage 2: runtime ----
 FROM node:22-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production \
@@ -22,10 +32,11 @@ RUN apt-get update \
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 
-# msg-center source.
+# msg-center source + the built UI from stage 1.
 COPY tsconfig.json ./
 COPY src ./src
-COPY web ./web
+COPY web/package.json ./web/package.json
+COPY --from=web /web/dist ./web/dist
 
 # Install openclaw + the two channel plugins globally so msg-center can shell
 # out without a runtime dependency on the network at first boot.

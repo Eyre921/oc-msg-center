@@ -76,6 +76,17 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 );
 CREATE INDEX IF NOT EXISTS idx_subscriptions_topic ON subscriptions(topic);
 
+-- A whole group subscribed to a topic. Members (including ones added later)
+-- all receive messages published to that topic. ntfy-style "add group to channel".
+CREATE TABLE IF NOT EXISTS topic_groups (
+  topic      TEXT NOT NULL,
+  group_id   TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  min_priority INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (topic, group_id)
+);
+CREATE INDEX IF NOT EXISTS idx_topic_groups_topic ON topic_groups(topic);
+
 CREATE TABLE IF NOT EXISTS attachments (
   id           TEXT PRIMARY KEY,
   filename     TEXT NOT NULL,

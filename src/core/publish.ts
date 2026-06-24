@@ -102,16 +102,35 @@ export class Publisher {
     return message;
   }
 
+  /** Publish to a single user. Recipients = just that user (all their bots). */
+  async publishToUser(
+    user: { id: string; username: string },
+    input: Omit<PublishInput, "topic"> & { topic?: string },
+    opts: { wait?: boolean } = {},
+  ): Promise<Message> {
+    const topic = normalizeTopic(input.topic ?? `dm-${user.id}`);
+    this.store.ensureTopic(topic);
+    const message = this.record(topic, { ...input, topic });
+    return this.fanout(message, [{ userId: user.id, channels: input.channels ?? [] }], opts);
+  }
+
   private recipientsFromSubscriptions(
     topic: string,
     priority: Priority,
     forcedChannels?: string[],
   ): Recipient[] {
-    const subs = this.store.listSubscriptionsForTopic(topic);
     const out: Recipient[] = [];
-    for (const sub of subs) {
+    // Directly-subscribed users.
+    for (const sub of this.store.listSubscriptionsForTopic(topic)) {
       if (priority < sub.minPriority) continue;
       out.push({ userId: sub.userId, channels: forcedChannels?.length ? forcedChannels : sub.channels });
+    }
+    // Whole groups subscribed to this topic — expand to current members.
+    for (const gs of this.store.listGroupsForTopic(topic)) {
+      if (priority < gs.minPriority) continue;
+      for (const member of this.store.listGroupMembers(gs.groupId)) {
+        out.push({ userId: member.id, channels: forcedChannels ?? [] });
+      }
     }
     return out;
   }

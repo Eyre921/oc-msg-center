@@ -1,9 +1,9 @@
-node_modules
+**/node_modules
+web/dist
 data
 .git
 .env
 *.log
 coverage
 npm-debug.log*
-Dockerfile
 docker-compose.yml

@@ -20,8 +20,10 @@ const PublishBody = z
     channels: z.array(z.string()).optional(),
     /** Send to a named group instead of fanning out by topic subscribers. */
     group: z.string().optional(),
+    /** Send directly to one user (by id or username). */
+    user: z.string().optional(),
   })
-  .refine((b) => b.topic || b.group, "either topic or group is required");
+  .refine((b) => b.topic || b.group || b.user, "one of topic / group / user is required");
 
 export function registerPublishRoutes(server: FastifyInstance): void {
   // ntfy-style: POST /:topic with raw body or JSON.
@@ -96,6 +98,15 @@ export function registerPublishRoutes(server: FastifyInstance): void {
         attachmentId: body.attachmentId ?? null,
         channels: body.channels,
       };
+      if (body.user) {
+        const u = app.store.getUser(body.user) ?? app.store.getUserByUsername(body.user);
+        if (!u) return reply.code(404).send({ error: `user "${body.user}" not found` });
+        const msg = await app.publisher.publishToUser(u, {
+          ...common,
+          topic: body.topic ? normalizeTopic(body.topic) : undefined,
+        });
+        return reply.send(msg);
+      }
       if (body.group) {
         const group = app.store.getGroupByName(body.group);
         if (!group) return reply.code(404).send({ error: `group "${body.group}" not found` });

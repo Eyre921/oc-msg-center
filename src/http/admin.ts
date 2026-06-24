@@ -226,7 +226,105 @@ export function registerAdminRoutes(server: FastifyInstance): void {
     try {
       adminOnly(req);
       const app = getApp(req);
-      return reply.send({ topics: app.store.listTopics() });
+      const topics = app.store.listTopics().map((t) => ({
+        ...t,
+        userSubscribers: app.store.listSubscriptionsForTopic(t.name).length,
+        groupSubscribers: app.store.listGroupsForTopic(t.name).length,
+      }));
+      return reply.send({ topics });
+    } catch (err) {
+      return handleError(err, reply);
+    }
+  });
+
+  // Who receives a topic — users + groups.
+  server.get("/api/v1/topics/:topic/subscribers", async (req, reply) => {
+    try {
+      adminOnly(req);
+      const app = getApp(req);
+      const { topic } = req.params as { topic: string };
+      const users = app.store
+        .listSubscriptionsForTopic(topic)
+        .map((s) => {
+          const u = app.store.getUser(s.userId);
+          return u ? { id: u.id, username: u.username, minPriority: s.minPriority } : null;
+        })
+        .filter(Boolean);
+      const groups = app.store
+        .listGroupsForTopic(topic)
+        .map((g) => {
+          const grp = app.store.getGroup(g.groupId);
+          return grp ? { id: grp.id, name: grp.name, minPriority: g.minPriority } : null;
+        })
+        .filter(Boolean);
+      return reply.send({ topic, users, groups });
+    } catch (err) {
+      return handleError(err, reply);
+    }
+  });
+
+  // Add a user OR group to a topic (ntfy-style "join channel").
+  server.post("/api/v1/topics/:topic/subscribers", async (req, reply) => {
+    try {
+      adminOnly(req);
+      const app = getApp(req);
+      const { topic: rawTopic } = req.params as { topic: string };
+      const topic = normalizeTopic(rawTopic);
+      app.store.ensureTopic(topic);
+      const body = z
+        .object({
+          userId: z.string().optional(),
+          username: z.string().optional(),
+          groupId: z.string().optional(),
+          groupName: z.string().optional(),
+          minPriority: PrioritySchema.default(1),
+        })
+        .parse(req.body ?? {});
+
+      if (body.userId || body.username) {
+        const u = body.userId ? app.store.getUser(body.userId) : app.store.getUserByUsername(body.username!);
+        if (!u) return reply.code(404).send({ error: "user not found" });
+        app.store.upsertSubscription(u.id, topic, [], body.minPriority as Priority);
+        return reply.send({ ok: true, kind: "user", id: u.id });
+      }
+      if (body.groupId || body.groupName) {
+        const g = body.groupId ? app.store.getGroup(body.groupId) : app.store.getGroupByName(body.groupName!);
+        if (!g) return reply.code(404).send({ error: "group not found" });
+        app.store.subscribeGroupToTopic(topic, g.id, body.minPriority as Priority);
+        return reply.send({ ok: true, kind: "group", id: g.id });
+      }
+      return reply.code(400).send({ error: "user or group required" });
+    } catch (err) {
+      return handleError(err, reply);
+    }
+  });
+
+  server.delete("/api/v1/topics/:topic/subscribers", async (req, reply) => {
+    try {
+      adminOnly(req);
+      const app = getApp(req);
+      const { topic } = req.params as { topic: string };
+      const body = z.object({ userId: z.string().optional(), groupId: z.string().optional() }).parse(req.body ?? {});
+      if (body.userId) app.store.deleteSubscription(body.userId, topic);
+      if (body.groupId) app.store.unsubscribeGroupFromTopic(topic, body.groupId);
+      return reply.send({ ok: true });
+    } catch (err) {
+      return handleError(err, reply);
+    }
+  });
+
+  // Unified inbox: messages users sent back to their bots (reverse messages).
+  server.get("/api/v1/inbox", async (req, reply) => {
+    try {
+      adminOnly(req);
+      const app = getApp(req);
+      const limit = Math.min(500, Number((req.query as Record<string, string>).limit ?? 100) || 100);
+      const msgs = app.store.listInboundMessages(app.cfg.inboxTopicPrefix, limit).map((m) => {
+        const userId = m.topic.slice(app.cfg.inboxTopicPrefix.length);
+        const u = app.store.getUser(userId);
+        return { ...m, fromUser: u ? { id: u.id, username: u.username } : null };
+      });
+      return reply.send({ messages: msgs });
     } catch (err) {
       return handleError(err, reply);
     }

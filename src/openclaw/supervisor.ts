@@ -7,8 +7,12 @@ import { exec } from "./exec.ts";
  * Embedded openclaw gateway supervisor.
  *
  * - Ensures the QQ + WeChat plugins are installed (idempotent).
- * - Spawns `openclaw gateway start --foreground` and restarts it if it
- *   dies (capped exponential backoff so a permanent crash doesn't spin).
+ * - Ensures `gateway.mode=local` is set, otherwise `gateway run` refuses to
+ *   start ("Gateway start blocked: existing config is missing gateway.mode").
+ * - Runs `openclaw gateway run` (the FOREGROUND command — `gateway start` is
+ *   the systemd/launchd service installer and does NOT work inside a container;
+ *   `--foreground` is not a real flag) and restarts it if it dies (capped
+ *   exponential backoff so a permanent crash doesn't spin).
  *
  * Inbound routing is NOT done here: openclaw delivers inbound messages to an
  * agent, and msg-center configures itself as that agent (an OpenAI-compatible
@@ -17,6 +21,7 @@ import { exec } from "./exec.ts";
 export class OpenClawSupervisor {
   private child: ChildProcess | null = null;
   private restartTimer: NodeJS.Timeout | null = null;
+  private debounceTimer: NodeJS.Timeout | null = null;
   private restarts = 0;
   private stopped = false;
 
@@ -39,12 +44,18 @@ export class OpenClawSupervisor {
         this.opts.log.warn({ plugin, err: (err as Error).message }, "plugin install failed (continuing)");
       }
     }
+
+    // The gateway refuses to run without an explicit local mode.
+    await exec("openclaw", ["config", "set", "gateway.mode", "local"], {
+      allowFailure: true,
+      timeoutMs: 30_000,
+    }).catch(() => {});
   }
 
   start(): void {
     if (this.child || this.stopped) return;
-    this.opts.log.info("spawning openclaw gateway");
-    const child = spawn("openclaw", ["gateway", "start", "--foreground"], {
+    this.opts.log.info("spawning openclaw gateway (gateway run)");
+    const child = spawn("openclaw", ["gateway", "run"], {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env },
     });
@@ -59,11 +70,16 @@ export class OpenClawSupervisor {
       this.restartTimer = setTimeout(() => this.start(), delayMs);
     });
     this.child = child;
+    // A clean start resets the backoff after it has stayed up a while.
+    setTimeout(() => {
+      if (this.child === child) this.restarts = 0;
+    }, 30_000);
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.restartTimer) clearTimeout(this.restartTimer);
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (!this.child) return;
     return new Promise<void>((resolve) => {
       this.child!.on("close", () => resolve());
@@ -72,14 +88,22 @@ export class OpenClawSupervisor {
     });
   }
 
-  /** Restart gateway after a credential change. */
-  async restart(): Promise<void> {
-    if (this.child) {
-      this.opts.log.info("restarting openclaw gateway");
-      this.child.kill("SIGTERM");
-      // exit handler schedules the restart
-    } else {
-      this.start();
-    }
+  /**
+   * Restart the gateway to pick up a config change. Debounced: rapid calls
+   * (e.g. adding several bots) collapse into one restart so we don't thrash
+   * every account's connection.
+   */
+  restart(): void {
+    if (this.stopped) return;
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null;
+      if (this.child) {
+        this.opts.log.info("restarting openclaw gateway to apply config");
+        this.child.kill("SIGTERM"); // exit handler restarts it
+      } else {
+        this.start();
+      }
+    }, 1500);
   }
 }

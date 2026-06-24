@@ -200,6 +200,10 @@ function AddBotDialog({
   const [label, setLabel] = useState("");
   const [appId, setAppId] = useState("");
   const [secret, setSecret] = useState("");
+  const [wxMode, setWxMode] = useState<"qr" | "import">("qr");
+  const [wxToken, setWxToken] = useState("");
+  const [wxBaseUrl, setWxBaseUrl] = useState("https://ilinkai.weixin.qq.com");
+  const [wxUserId, setWxUserId] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -220,6 +224,10 @@ function AddBotDialog({
       if (channel === "qqbot") {
         credentials.appId = appId;
         credentials.secret = secret;
+      } else if ((channel.includes("weixin") || channel.includes("wx")) && wxMode === "import") {
+        credentials.token = wxToken.trim();
+        if (wxBaseUrl.trim()) credentials.baseUrl = wxBaseUrl.trim();
+        if (wxUserId.trim()) credentials.userId = wxUserId.trim();
       }
       const r = await api<{ needsQrScan?: boolean; loginSessionId?: string }>("POST", "/api/v1/bots", {
         userId: user.id,
@@ -280,9 +288,45 @@ function AddBotDialog({
           </div>
         )}
         {isWx && (
-          <p className="rounded-md bg-subtle/60 p-3 text-[12.5px] text-muted">
-            微信无需填凭据：保存后会弹出二维码，让对方用自己的微信扫码登录。
-          </p>
+          <div className="rounded-md bg-subtle/60 p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              {(["qr", "import"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setWxMode(m)}
+                  className={`rounded-md border px-3 py-2 text-[12.5px] font-medium transition-all ${
+                    wxMode === m ? "border-ink bg-white shadow-card" : "border-border hover:border-neutral-300"
+                  }`}
+                >
+                  {m === "qr" ? "扫码登录" : "导入会话"}
+                </button>
+              ))}
+            </div>
+            {wxMode === "qr" ? (
+              <p className="text-[12px] text-muted">保存后会弹出二维码，让对方用自己的微信扫码登录。</p>
+            ) : (
+              <div className="space-y-2">
+                <div>
+                  <Label>会话 token</Label>
+                  <Input value={wxToken} onChange={(e) => setWxToken(e.target.value)} placeholder="xxxx@im.bot:0600..." />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label>baseUrl</Label>
+                    <Input value={wxBaseUrl} onChange={(e) => setWxBaseUrl(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>userId（可选）</Label>
+                    <Input value={wxUserId} onChange={(e) => setWxUserId(e.target.value)} placeholder="o9cq...@im.wechat" />
+                  </div>
+                </div>
+                <p className="text-[12px] text-faint">
+                  粘贴已导出的微信会话，accountId 会自动按 token 推导，无需扫码。
+                </p>
+              </div>
+            )}
+          </div>
         )}
 
         <div className="flex justify-end gap-2">

@@ -4,6 +4,7 @@ import type { Bot } from "../types.ts";
 import type { OpenClawSupervisor } from "../openclaw/supervisor.ts";
 import { exec } from "../openclaw/exec.ts";
 import { configureAccountAgent, removeAccountAgent } from "../openclaw/provision.ts";
+import { injectWeixinSession } from "../openclaw/weixin-session.ts";
 import { spawn } from "node:child_process";
 
 export interface ProvisionResult {
@@ -119,9 +120,30 @@ export class BotControl {
       }
     }
 
-    // WeChat: kick off a non-blocking QR login. After the scan completes we
-    // wire the agent route + restart (see onSuccess).
     if (openclawChannel.includes("weixin")) {
+      // Path A: an exported session was pasted — inject it directly, no QR.
+      const token = String(bot.credentials.token ?? "");
+      if (token) {
+        try {
+          await injectWeixinSession(
+            this.ctx.configDir,
+            bot.accountId,
+            {
+              token,
+              baseUrl: bot.credentials.baseUrl ? String(bot.credentials.baseUrl) : undefined,
+              userId: bot.credentials.userId ? String(bot.credentials.userId) : undefined,
+            },
+            this.log,
+          );
+          await this.wireAgent(bot.channel, openclawChannel, bot.accountId);
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, error: (err as Error).message };
+        }
+      }
+
+      // Path B: no session — kick off a non-blocking QR login. After the scan
+      // completes we wire the agent route + restart (see onSuccess).
       const sessionId = this.wechatLogins.start(openclawChannel, bot, this.log, () =>
         this.wireAgent(bot.channel, openclawChannel, bot.accountId).catch((err) =>
           this.log.error({ err: (err as Error).message }, "weixin post-login agent wiring failed"),

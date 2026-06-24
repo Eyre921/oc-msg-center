@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { adminOnly, getApp, handleError } from "./helpers.ts";
+import { weixinAccountIdFromToken } from "../openclaw/weixin-session.ts";
 
 const CreateBody = z.object({
   userId: z.string(),
@@ -50,36 +51,60 @@ export function registerBotRoutes(server: FastifyInstance): void {
         return reply.code(400).send({ error: `channel "${body.channel}" not configured` });
       if (!app.store.getUser(body.userId))
         return reply.code(404).send({ error: "user not found" });
-      if (app.store.getBotByAccount(body.channel, body.accountId))
-        return reply.code(409).send({ error: `(${body.channel}, ${body.accountId}) is taken` });
+
+      // For an imported WeChat session the accountId is fixed by the token
+      // (openclaw derives the on-disk filename from it), so override whatever
+      // the form sent.
+      const cc0 = app.cfg.channels.find((c) => c.id === body.channel);
+      const isWeixin = (cc0?.openclawChannel ?? body.channel).includes("weixin");
+      const wxToken = typeof body.credentials.token === "string" ? body.credentials.token : "";
+      const accountId = isWeixin && wxToken ? weixinAccountIdFromToken(wxToken) : body.accountId;
+
+      if (app.store.getBotByAccount(body.channel, accountId))
+        return reply.code(409).send({ error: `(${body.channel}, ${accountId}) is taken` });
 
       const bot = app.store.createBot({
         userId: body.userId,
         channel: body.channel,
-        accountId: body.accountId,
+        accountId,
         label: body.label ?? null,
         credentials: body.credentials,
         status: "pending",
       });
-      const result = await app.botControl.provision(bot);
-      if (!result.ok) {
-        app.store.updateBotStatus(bot.id, "error", false);
-        return reply.code(502).send({ error: `provision failed: ${result.error}`, bot });
-      }
-      // WeChat: the gateway is now running an interactive login process —
-      // surface the session id so the UI can poll for the QR.
-      if (result.sessionId) {
-        const fresh = app.store.getBot(bot.id)!;
-        return reply.send({
-          ...fresh,
-          credentials: redact(fresh.credentials),
-          loginSessionId: result.sessionId,
-          needsQrScan: true,
+
+      // Provisioning (channels add + agent wiring + gateway restart) takes
+      // ~15s — far too long to block the request. Respond immediately with a
+      // pending bot; the UI polls /api/v1/users for the status to flip to
+      // active/error. WeChat additionally surfaces a QR login session the UI
+      // can poll by its deterministic id.
+      // QR is only needed for WeChat WITHOUT an imported session token.
+      const needsQrScan = isWeixin && !wxToken;
+      const loginSessionId = `${bot.channel}:${bot.accountId}`;
+
+      void app.botControl
+        .provision(bot)
+        .then((result) => {
+          if (!result.ok) {
+            app.store.updateBotStatus(bot.id, "error", false);
+            app.log.warn({ bot: bot.id, err: result.error }, "bot provisioning failed");
+          } else if (!result.sessionId) {
+            app.store.updateBotStatus(bot.id, "active");
+          }
+          // sessionId (WeChat): stays pending until the QR login completes,
+          // at which point the login-session endpoint marks it active.
+        })
+        .catch((err) => {
+          app.store.updateBotStatus(bot.id, "error", false);
+          app.log.error({ bot: bot.id, err: String(err) }, "bot provisioning threw");
         });
-      }
-      app.store.updateBotStatus(bot.id, "active");
+
       const fresh = app.store.getBot(bot.id)!;
-      return reply.send({ ...fresh, credentials: redact(fresh.credentials) });
+      return reply.send({
+        ...fresh,
+        credentials: redact(fresh.credentials),
+        provisioning: true,
+        ...(needsQrScan ? { needsQrScan: true, loginSessionId } : {}),
+      });
     } catch (err) {
       return handleError(err, reply);
     }

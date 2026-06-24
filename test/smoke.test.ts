@@ -63,8 +63,20 @@ describe("oc-msg-center smoke", () => {
       }),
     });
     expect(botRes.ok).toBe(true);
-    const bot = (await botRes.json()) as { id: string; status: string };
-    expect(bot.status).toBe("active");
+    const bot = (await botRes.json()) as { id: string; status: string; provisioning?: boolean };
+    // Provisioning is async now: the create call returns immediately as pending.
+    expect(bot.status).toBe("pending");
+    expect(bot.provisioning).toBe(true);
+    // The console channel has nothing to provision, so it flips to active shortly.
+    let status = "pending";
+    for (let i = 0; i < 20 && status !== "active"; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      const list = (await (
+        await fetch(`${baseUrl}/api/v1/bots`, { headers: { authorization: `Bearer ${adminToken}` } })
+      ).json()) as { bots: { id: string; status: string }[] };
+      status = list.bots.find((b) => b.id === bot.id)?.status ?? "pending";
+    }
+    expect(status).toBe("active");
   });
 
   it("binding flow: create code, simulate inbound, deliver message via bot", async () => {

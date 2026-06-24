@@ -150,8 +150,8 @@
     npm_config_fund: "false"
     HUSKY: "0"
   stages:
-    - name: npm install
-      script: npm install --no-audit --no-fund
+    - name: npm ci
+      script: npm ci --no-audit --no-fund
     - name: tsc --noEmit
       script: npx tsc --noEmit
     - name: vitest run

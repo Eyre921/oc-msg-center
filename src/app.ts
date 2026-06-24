@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import fastifyCors from "@fastify/cors";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
@@ -67,10 +67,14 @@ export class App {
   }
 
   async start(): Promise<void> {
+    // Cast pino logger to the FastifyBaseLogger shape — fastify 5 expects a
+    // msgPrefix property that older pino types don't expose. Behaviour is
+    // unchanged; the cast just stops the inferred FastifyInstance from
+    // diverging from the default-generic one our route registrars expect.
     const server = Fastify({
-      loggerInstance: this.log,
+      loggerInstance: this.log as unknown as FastifyBaseLogger,
       bodyLimit: this.cfg.attachmentMaxBytes + 1024 * 1024,
-    });
+    }) as unknown as FastifyInstance;
     (server as unknown as { msg: App }).msg = this;
 
     await server.register(fastifyCors, { origin: true, credentials: true });

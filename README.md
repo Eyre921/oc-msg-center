@@ -63,26 +63,31 @@
 
 ## 🚀 拿来就能用
 
-### 方式 A：纯 docker compose（推荐，跑全套：center + QQ bridge + WeChat bridge）
+> **镜像源**：当前镜像托管在 CNB **私有** registry，需要先 `docker login docker.cnb.cool`
+> （用你的 CNB 账号）。CNB 仓库公开化或镜像同步到 ghcr.io / Docker Hub 是后续 TODO。
 
-不需要 clone 仓库：
+### 方式 A：docker compose（推荐）
 
 ```bash
 mkdir oc-msg-center && cd oc-msg-center
-curl -O https://cnb.cool/lib/clawify/-/raw/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/Eyre921/oc-msg-center/main/docker-compose.yml
+docker login docker.cnb.cool         # 首次拉私有镜像
 docker compose up -d
-docker compose logs msg-center -f   # 留意打印出的随机 admin 密码
+docker compose logs msg-center -f    # 留意打印出的随机 admin 密码
 ```
 
 打开 <http://localhost:2586>，用 `admin` + 日志里那串随机密码登录即可。
 
-### 方式 B：单容器（只要 center 本体，console 渠道做 smoke test）
+### 方式 B：单容器 `docker run`
 
 ```bash
+docker login docker.cnb.cool
 docker run -d --name oc-msg-center \
   -p 2586:2586 \
   -v msgcenter-data:/data \
+  -v openclaw-data:/root/.openclaw \
   -e MSGCENTER_ADMIN_PASSWORD=your-pw \
+  --pull always \
   docker.cnb.cool/lib/clawify:latest
 ```
 

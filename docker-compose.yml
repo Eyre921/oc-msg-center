@@ -1,6 +1,7 @@
 # oc-msg-center — 单镜像版（拿来就能用）
 #
-#   curl -O https://cnb.cool/lib/clawify/-/raw/main/docker-compose.yml
+#   curl -O https://raw.githubusercontent.com/Eyre921/oc-msg-center/main/docker-compose.yml
+#   docker login docker.cnb.cool        # 镜像仓库是私有的，首次需要登录
 #   docker compose up -d
 #
 # 容器内已内嵌 openclaw runtime + QQ/微信 两个插件，启动时自动拉起 gateway。

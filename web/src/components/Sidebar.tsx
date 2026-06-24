@@ -36,7 +36,7 @@ export const NAV: { id: PageId; label: string; icon: React.ReactNode; group: str
 
 const GROUPS: { id: string; label: string }[] = [
   { id: "main", label: "工作台" },
-  { id: "routing", label: "路由与成员" },
+  { id: "routing", label: "管理" },
   { id: "integrations", label: "集成" },
 ];
 

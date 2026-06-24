@@ -83,6 +83,7 @@ export interface Group {
 export interface Topic {
   name: string;
   createdAt: number;
+  system: boolean;
   userSubscribers: number;
   groupSubscribers: number;
 }
@@ -96,6 +97,7 @@ export interface Message {
   sender: string | null;
   createdAt: number;
   fromUser?: { id: string; username: string } | null;
+  target?: { kind: "user" | "group" | "channel"; label: string };
 }
 export interface Channel {
   id: string;

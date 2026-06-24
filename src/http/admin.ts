@@ -226,12 +226,39 @@ export function registerAdminRoutes(server: FastifyInstance): void {
     try {
       adminOnly(req);
       const app = getApp(req);
+      const isSystem = (name: string) =>
+        name.startsWith(app.cfg.inboxTopicPrefix) || name.startsWith("group-") || name.startsWith("dm-");
       const topics = app.store.listTopics().map((t) => ({
         ...t,
+        system: isSystem(t.name),
         userSubscribers: app.store.listSubscriptionsForTopic(t.name).length,
         groupSubscribers: app.store.listGroupsForTopic(t.name).length,
       }));
       return reply.send({ topics });
+    } catch (err) {
+      return handleError(err, reply);
+    }
+  });
+
+  // Recent outbound messages (sent history) with a human target label.
+  server.get("/api/v1/sent", async (req, reply) => {
+    try {
+      adminOnly(req);
+      const app = getApp(req);
+      const limit = Math.min(200, Number((req.query as Record<string, string>).limit ?? 30) || 30);
+      const messages = app.store.listRecentOutbound(app.cfg.inboxTopicPrefix, limit).map((m) => {
+        let target: { kind: "user" | "group" | "channel"; label: string };
+        if (m.topic.startsWith("dm-")) {
+          const u = app.store.getUser(m.topic.slice(3));
+          target = { kind: "user", label: u?.username ?? m.topic };
+        } else if (m.topic.startsWith("group-")) {
+          target = { kind: "group", label: m.topic.slice(6) };
+        } else {
+          target = { kind: "channel", label: m.topic };
+        }
+        return { ...m, target };
+      });
+      return reply.send({ messages });
     } catch (err) {
       return handleError(err, reply);
     }

@@ -140,9 +140,11 @@ export function Compose() {
                     onChange={(e) => setChannelName(e.target.value)}
                   />
                   <datalist id="topic-list">
-                    {topics.data?.topics.map((t) => (
-                      <option key={t.name} value={t.name} />
-                    ))}
+                    {topics.data?.topics
+                      .filter((t) => !t.system)
+                      .map((t) => (
+                        <option key={t.name} value={t.name} />
+                      ))}
                   </datalist>
                 </>
               )}

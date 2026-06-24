@@ -329,6 +329,15 @@ export class Store {
     ).map((r) => mapMessage(r)!);
   }
 
+  /** Recent outbound (sent) messages — everything except the inbox topics. */
+  listRecentOutbound(inboxPrefix: string, limit = 50): Message[] {
+    return (
+      this.db
+        .prepare("SELECT * FROM messages WHERE topic NOT LIKE ? ORDER BY created_at DESC LIMIT ?")
+        .all(inboxPrefix + "%", limit) as Row[]
+    ).map((r) => mapMessage(r)!);
+  }
+
   // ---- attachments ----------------------------------------------------------
 
   createAttachment(a: Omit<Attachment, "id">): Attachment {

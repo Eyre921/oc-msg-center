@@ -31,7 +31,8 @@ export function Channels() {
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
 
-  const list = topics.data?.topics ?? [];
+  // Only real, admin-managed channels — hide internal inbox-/group-/dm- topics.
+  const list = (topics.data?.topics ?? []).filter((t) => !t.system);
   useEffect(() => {
     if (!selected && list.length) setSelected(list[0].name);
   }, [list, selected]);

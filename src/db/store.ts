@@ -338,6 +338,19 @@ export class Store {
     ).map((r) => mapMessage(r)!);
   }
 
+  /** The 1:1 thread with a user: their inbound (inbox-<id>) + direct sends (dm-<id>). */
+  listConversation(inboxTopic: string, dmTopic: string, limit = 200): Message[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT * FROM messages WHERE topic IN (?, ?) ORDER BY created_at DESC LIMIT ?",
+        )
+        .all(inboxTopic, dmTopic, limit) as Row[]
+    )
+      .map((r) => mapMessage(r)!)
+      .reverse();
+  }
+
   // ---- attachments ----------------------------------------------------------
 
   createAttachment(a: Omit<Attachment, "id">): Attachment {

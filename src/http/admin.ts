@@ -340,6 +340,33 @@ export function registerAdminRoutes(server: FastifyInstance): void {
     }
   });
 
+  // 1:1 conversation thread with a user (their messages + direct sends to them).
+  server.get("/api/v1/users/:id/conversation", async (req, reply) => {
+    try {
+      adminOnly(req);
+      const app = getApp(req);
+      const { id } = req.params as { id: string };
+      const user = app.store.getUser(id);
+      if (!user) return reply.code(404).send({ error: "user not found" });
+      const limit = Math.min(500, Number((req.query as Record<string, string>).limit ?? 200) || 200);
+      const inboxTopic = `${app.cfg.inboxTopicPrefix}${id}`;
+      const dmTopic = `dm-${id}`;
+      const messages = app.store.listConversation(inboxTopic, dmTopic, limit).map((m) => {
+        const att = m.attachmentId ? app.store.getAttachment(m.attachmentId) : null;
+        return {
+          ...m,
+          direction: m.topic === inboxTopic ? "in" : "out",
+          attachment: att
+            ? { id: att.id, filename: att.filename, contentType: att.contentType, size: att.size, url: app.attachments.url(att) }
+            : null,
+        };
+      });
+      return reply.send({ user: { id: user.id, username: user.username }, messages });
+    } catch (err) {
+      return handleError(err, reply);
+    }
+  });
+
   // Unified inbox: messages users sent back to their bots (reverse messages).
   server.get("/api/v1/inbox", async (req, reply) => {
     try {

@@ -39,17 +39,26 @@ export function Compose() {
   const [body, setBody] = useState("");
   const [priority, setPriority] = useState(3);
   const [tags, setTags] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
+      let attachmentId: string | undefined;
+      if (file) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const up = await api<{ id: string }>("POST", "/api/v1/files", fd, { raw: true });
+        attachmentId = up.id;
+      }
       const payload: Record<string, unknown> = {
         title: title || null,
         body,
         priority,
         tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+        attachmentId,
       };
       if (target === "user") payload.user = value;
       else if (target === "group") payload.group = value;
@@ -59,6 +68,7 @@ export function Compose() {
       setBody("");
       setTitle("");
       setTags("");
+      setFile(null);
     } catch (err) {
       toast((err as Error).message, "error");
     } finally {
@@ -166,6 +176,14 @@ export function Compose() {
             <div>
               <Label>标签（逗号分隔，可选）</Label>
               <Input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="prod, db" />
+            </div>
+            <div>
+              <Label>附件（可选，图片/文件）</Label>
+              <input
+                type="file"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                className="block w-full text-[13px] text-muted file:mr-3 file:rounded-md file:border file:border-border file:bg-subtle file:px-3 file:py-1.5 file:text-[13px] file:text-ink hover:file:bg-neutral-100"
+              />
             </div>
 
             <Button type="submit" disabled={!canSend || busy} className="w-full">

@@ -176,6 +176,86 @@ describe("oc-msg-center smoke", () => {
     expect(text).toContain("carol");
   });
 
+  it("inbound image is downloaded, stored permanently, and linked to the conversation", async () => {
+    // carol's identity was bound in the previous test. Send an OpenAI-style
+    // chat completion carrying an inline base64 image, the way openclaw relays
+    // a picture a colleague sent to their bot.
+    const carol = app.store.getUserByUsername("carol")!;
+    const pngDataUri =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+    const res = await fetch(`${baseUrl}/v1/acct/console/carol-console/chat/completions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${app.agentToken}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "msgcenter",
+        stream: false,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "看看这张图" },
+              { type: "image_url", image_url: { url: pngDataUri } },
+            ],
+          },
+        ],
+      }),
+    });
+    expect(res.ok).toBe(true);
+
+    // The file is now in permanent storage.
+    const stats = (await (
+      await fetch(`${baseUrl}/api/v1/storage/stats`, { headers: { authorization: `Bearer ${adminToken}` } })
+    ).json()) as { total: { count: number }; images: { count: number } };
+    expect(stats.total.count).toBeGreaterThanOrEqual(1);
+    expect(stats.images.count).toBeGreaterThanOrEqual(1);
+
+    // And it is linked to carol's conversation as an inbound attachment.
+    const conv = (await (
+      await fetch(`${baseUrl}/api/v1/users/${carol.id}/conversation`, {
+        headers: { authorization: `Bearer ${adminToken}` },
+      })
+    ).json()) as { messages: { direction: string; attachment: { contentType: string } | null }[] };
+    const withImage = conv.messages.find((m) => m.direction === "in" && m.attachment?.contentType === "image/png");
+    expect(withImage).toBeTruthy();
+  });
+
+  it("storage cleanup deletes by rule (dry-run then real) and respects the no-rule guard", async () => {
+    // No-rule cleanup is refused.
+    const guard = await fetch(`${baseUrl}/api/v1/storage/cleanup`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${adminToken}`, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(guard.status).toBe(400);
+
+    // Dry run reports what WOULD be deleted without deleting.
+    const dry = (await (
+      await fetch(`${baseUrl}/api/v1/storage/cleanup`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${adminToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ type: "image", dryRun: true }),
+      })
+    ).json()) as { dryRun: boolean; count: number };
+    expect(dry.dryRun).toBe(true);
+    expect(dry.count).toBeGreaterThanOrEqual(1);
+
+    // Real cleanup removes them.
+    const real = (await (
+      await fetch(`${baseUrl}/api/v1/storage/cleanup`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${adminToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ type: "image" }),
+      })
+    ).json()) as { deleted: number };
+    expect(real.deleted).toBe(dry.count);
+
+    const after = (await (
+      await fetch(`${baseUrl}/api/v1/storage/stats`, { headers: { authorization: `Bearer ${adminToken}` } })
+    ).json()) as { images: { count: number } };
+    expect(after.images.count).toBe(0);
+  });
+
   it("agent endpoint rejects a bad token", async () => {
     const res = await fetch(`${baseUrl}/v1/acct/console/carol-console/chat/completions`, {
       method: "POST",

@@ -22,6 +22,24 @@ import type {
 
 type Row = Record<string, any>;
 
+/** Rule set for listing / counting / deleting attachments in bulk. */
+export interface AttachmentFilter {
+  /** Exact owner id; `null` matches attachments with no owner. */
+  ownerId?: string | null;
+  /** `image` = content-type image/*; `file` = everything else. */
+  type?: "image" | "file";
+  /** created_at strictly before this unix-seconds timestamp. */
+  olderThan?: number;
+  /** size in bytes >= this. */
+  minSize?: number;
+  /** Only attachments not referenced by any message. */
+  orphan?: boolean;
+  /** Explicit attachment ids. */
+  ids?: string[];
+  /** Filename substring match. */
+  q?: string;
+}
+
 /** Typed data-access layer over a single sqlite database. */
 export class Store {
   readonly db: Database.Database;
@@ -338,6 +356,19 @@ export class Store {
     ).map((r) => mapMessage(r)!);
   }
 
+  /** The 1:1 thread with a user: their inbound (inbox-<id>) + direct sends (dm-<id>). */
+  listConversation(inboxTopic: string, dmTopic: string, limit = 200): Message[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT * FROM messages WHERE topic IN (?, ?) ORDER BY created_at DESC LIMIT ?",
+        )
+        .all(inboxTopic, dmTopic, limit) as Row[]
+    )
+      .map((r) => mapMessage(r)!)
+      .reverse();
+  }
+
   // ---- attachments ----------------------------------------------------------
 
   createAttachment(a: Omit<Attachment, "id">): Attachment {
@@ -356,9 +387,103 @@ export class Store {
   }
 
   pruneAttachments(before: number): Attachment[] {
-    const rows = this.db.prepare("SELECT * FROM attachments WHERE expires_at < ?").all(before) as Row[];
-    this.db.prepare("DELETE FROM attachments WHERE expires_at < ?").run(before);
+    // expires_at = 0 means "keep forever" — never auto-prune those.
+    const rows = this.db
+      .prepare("SELECT * FROM attachments WHERE expires_at > 0 AND expires_at < ?")
+      .all(before) as Row[];
+    this.db.prepare("DELETE FROM attachments WHERE expires_at > 0 AND expires_at < ?").run(before);
     return rows.map((r) => mapAttachment(r)!);
+  }
+
+  // ---- storage administration (manual, rule-based cleanup) -------------------
+
+  /** Build a WHERE clause + params for the attachment filter rules. */
+  private attachmentWhere(f: AttachmentFilter): { sql: string; params: unknown[] } {
+    const conds: string[] = [];
+    const params: unknown[] = [];
+    if (f.ownerId !== undefined) {
+      if (f.ownerId === null) conds.push("owner_id IS NULL");
+      else {
+        conds.push("owner_id = ?");
+        params.push(f.ownerId);
+      }
+    }
+    if (f.type === "image") conds.push("content_type LIKE 'image/%'");
+    else if (f.type === "file") conds.push("content_type NOT LIKE 'image/%'");
+    if (f.olderThan !== undefined) {
+      conds.push("created_at < ?");
+      params.push(f.olderThan);
+    }
+    if (f.minSize !== undefined) {
+      conds.push("size >= ?");
+      params.push(f.minSize);
+    }
+    if (f.orphan) {
+      conds.push("id NOT IN (SELECT attachment_id FROM messages WHERE attachment_id IS NOT NULL)");
+    }
+    if (f.ids && f.ids.length) {
+      conds.push(`id IN (${f.ids.map(() => "?").join(",")})`);
+      params.push(...f.ids);
+    }
+    if (f.q) {
+      conds.push("filename LIKE ?");
+      params.push(`%${f.q}%`);
+    }
+    return { sql: conds.length ? `WHERE ${conds.join(" AND ")}` : "", params };
+  }
+
+  /** List attachments matching a filter, each flagged whether a message references it. */
+  listAttachments(f: AttachmentFilter, limit = 100, offset = 0): (Attachment & { referenced: boolean })[] {
+    const { sql, params } = this.attachmentWhere(f);
+    const rows = this.db
+      .prepare(
+        `SELECT *, (id IN (SELECT attachment_id FROM messages WHERE attachment_id IS NOT NULL)) AS referenced
+         FROM attachments ${sql} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      )
+      .all(...params, limit, offset) as Row[];
+    return rows.map((r) => ({ ...mapAttachment(r)!, referenced: Boolean(r.referenced) }));
+  }
+
+  /** Count + total bytes of attachments matching a filter. */
+  countAttachments(f: AttachmentFilter): { count: number; bytes: number } {
+    const { sql, params } = this.attachmentWhere(f);
+    const r = this.db
+      .prepare(`SELECT COUNT(*) AS c, COALESCE(SUM(size), 0) AS b FROM attachments ${sql}`)
+      .get(...params) as Row;
+    return { count: Number(r.c), bytes: Number(r.b) };
+  }
+
+  /** Delete attachments matching a filter; returns the deleted rows (for disk unlink). */
+  deleteAttachmentsByFilter(f: AttachmentFilter): Attachment[] {
+    const { sql, params } = this.attachmentWhere(f);
+    const rows = this.db.prepare(`SELECT * FROM attachments ${sql}`).all(...params) as Row[];
+    if (rows.length) {
+      const ids = rows.map((r) => r.id as string);
+      this.db.prepare(`DELETE FROM attachments WHERE id IN (${ids.map(() => "?").join(",")})`).run(...ids);
+    }
+    return rows.map((r) => mapAttachment(r)!);
+  }
+
+  /** Aggregate storage usage across all attachments. */
+  storageStats(): {
+    total: { count: number; bytes: number };
+    images: { count: number; bytes: number };
+    files: { count: number; bytes: number };
+    orphans: { count: number; bytes: number };
+    oldest: number | null;
+    newest: number | null;
+  } {
+    const span = this.db
+      .prepare("SELECT MIN(created_at) AS oldest, MAX(created_at) AS newest FROM attachments")
+      .get() as Row;
+    return {
+      total: this.countAttachments({}),
+      images: this.countAttachments({ type: "image" }),
+      files: this.countAttachments({ type: "file" }),
+      orphans: this.countAttachments({ orphan: true }),
+      oldest: span.oldest ?? null,
+      newest: span.newest ?? null,
+    };
   }
 
   // ---- messages -------------------------------------------------------------
@@ -396,7 +521,8 @@ export class Store {
   }
 
   pruneMessages(before: number): number {
-    const info = this.db.prepare("DELETE FROM messages WHERE expires_at < ?").run(before);
+    // expires_at = 0 means "keep forever".
+    const info = this.db.prepare("DELETE FROM messages WHERE expires_at > 0 AND expires_at < ?").run(before);
     return info.changes;
   }
 

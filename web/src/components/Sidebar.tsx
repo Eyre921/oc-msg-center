@@ -1,9 +1,11 @@
 import { motion } from "framer-motion";
 import {
   Hash,
+  HardDrive,
   Inbox,
   LayoutDashboard,
   LogOut,
+  MessagesSquare,
   Radio,
   Send,
   Users,
@@ -16,20 +18,24 @@ import { cn } from "@/lib/utils";
 export type PageId =
   | "overview"
   | "inbox"
-  | "channels"
+  | "conversations"
   | "compose"
+  | "channels"
   | "users"
   | "groups"
+  | "storage"
   | "webhooks"
   | "tokens";
 
 export const NAV: { id: PageId; label: string; icon: React.ReactNode; group: string }[] = [
   { id: "overview", label: "概览", icon: <LayoutDashboard size={17} />, group: "main" },
   { id: "inbox", label: "收件箱", icon: <Inbox size={17} />, group: "main" },
+  { id: "conversations", label: "对话", icon: <MessagesSquare size={17} />, group: "main" },
   { id: "compose", label: "发送消息", icon: <Send size={17} />, group: "main" },
   { id: "channels", label: "通知频道", icon: <Hash size={17} />, group: "routing" },
   { id: "users", label: "用户与机器人", icon: <Users size={17} />, group: "routing" },
   { id: "groups", label: "分组", icon: <UsersRound size={17} />, group: "routing" },
+  { id: "storage", label: "文件存储", icon: <HardDrive size={17} />, group: "routing" },
   { id: "webhooks", label: "Webhooks", icon: <Webhook size={17} />, group: "integrations" },
   { id: "tokens", label: "API Token", icon: <KeyRound size={17} />, group: "integrations" },
 ];

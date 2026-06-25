@@ -4,10 +4,12 @@ import { Sidebar, type PageId } from "@/components/Sidebar";
 import { Login } from "@/pages/Login";
 import { Overview } from "@/pages/Overview";
 import { InboxPage } from "@/pages/Inbox";
+import { Conversations } from "@/pages/Conversations";
 import { Channels } from "@/pages/Channels";
 import { Compose } from "@/pages/Compose";
 import { UsersPage } from "@/pages/Users";
 import { Groups } from "@/pages/Groups";
+import { Storage } from "@/pages/Storage";
 import { Webhooks } from "@/pages/Webhooks";
 import { Tokens } from "@/pages/Tokens";
 import { api, clearToken, getToken } from "@/lib/api";
@@ -16,10 +18,12 @@ import { PageLoader } from "@/components/ui/misc";
 const PAGES: Record<PageId, React.ComponentType> = {
   overview: Overview,
   inbox: InboxPage,
+  conversations: Conversations,
   compose: Compose,
   channels: Channels,
   users: UsersPage,
   groups: Groups,
+  storage: Storage,
   webhooks: Webhooks,
   tokens: Tokens,
 };

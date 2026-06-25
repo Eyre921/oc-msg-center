@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Sidebar, type PageId } from "@/components/Sidebar";
 import { Login } from "@/pages/Login";
 import { Overview } from "@/pages/Overview";
+import { Status } from "@/pages/Status";
 import { InboxPage } from "@/pages/Inbox";
 import { Conversations } from "@/pages/Conversations";
 import { Channels } from "@/pages/Channels";
@@ -17,6 +18,7 @@ import { PageLoader } from "@/components/ui/misc";
 
 const PAGES: Record<PageId, React.ComponentType> = {
   overview: Overview,
+  status: Status,
   inbox: InboxPage,
   conversations: Conversations,
   compose: Compose,

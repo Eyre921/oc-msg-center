@@ -30,6 +30,7 @@ import { registerAdminRoutes } from "./http/admin.ts";
 import { registerBotRoutes } from "./http/bots.ts";
 import { registerAgentRoutes } from "./http/agent.ts";
 import { registerStorageRoutes } from "./http/storage.ts";
+import { registerStatusRoutes } from "./http/status.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -132,6 +133,7 @@ export class App {
     registerBotRoutes(server);
     registerAgentRoutes(server);
     registerStorageRoutes(server);
+    registerStatusRoutes(server);
 
     // Serve the built React app. Falls back to web/ (raw) if dist is absent
     // (e.g. running from source without a web build).

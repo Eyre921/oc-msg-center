@@ -24,7 +24,10 @@ export function Conversations() {
   const users = useData<{ users: User[] }>("/api/v1/users");
   const [selected, setSelected] = useState<string | null>(null);
 
-  const list = (users.data?.users ?? []).filter((u) => u.role !== "admin");
+  // Colleagues to chat with. Admins are operators, not chat targets — but if the
+  // operator bound a bot to their own admin account (e.g. to test), surface them
+  // too, otherwise the thread would be invisible.
+  const list = (users.data?.users ?? []).filter((u) => u.role !== "admin" || u.bots.length > 0);
   useEffect(() => {
     if (!selected && list.length) setSelected(list[0].id);
   }, [list, selected]);

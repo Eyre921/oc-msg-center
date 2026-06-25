@@ -52,6 +52,16 @@ export class OpenClawSupervisor {
     }).catch(() => {});
   }
 
+  /** Snapshot of the embedded gateway process for the status dashboard. */
+  status(): { enabled: boolean; running: boolean; pid: number | null; restarts: number } {
+    return {
+      enabled: true,
+      running: this.child != null && !this.child.killed,
+      pid: this.child?.pid ?? null,
+      restarts: this.restarts,
+    };
+  }
+
   start(): void {
     if (this.child || this.stopped) return;
     this.opts.log.info("spawning openclaw gateway (gateway run)");

@@ -142,14 +142,30 @@ function lastUserText(messages: ChatMessage[]): string {
 }
 
 /**
- * openclaw wraps inbound text as: `[channel from ts] Sender: <body>`.
- * Recover <body> for command/bind detection. Best-effort; if the shape is
- * unexpected we return the input unchanged.
+ * openclaw wraps inbound text in an "envelope" before handing it to the agent.
+ * Two shapes seen in the wild:
+ *   - simple:  `[channel from ts] Sender: <body>`
+ *   - rich:    a leading ```json {chat metadata}``` block, an optional
+ *              "Sender (untrusted metadata):" ```json {...}``` block, then the
+ *              user's actual message as the trailing text.
+ * Recover just the user's message for command/bind detection and a clean
+ * inbox. Best-effort; if nothing is left we return the input unchanged.
  */
 function stripEnvelope(text: string): string {
   let t = text.trim();
-  t = t.replace(/^\[[^\]]*\]\s*/, ""); // drop leading [channel from ts]
-  t = t.replace(/^[^:\n]{1,40}:\s*/, ""); // drop leading "Sender: "
+  // Rich envelope: drop fenced ```...``` blocks and metadata labels, keep the rest.
+  if (t.includes("```") || /untrusted metadata/i.test(t)) {
+    const cleaned = t
+      .replace(/```[\s\S]*?```/g, "") // remove all fenced code/JSON blocks
+      .replace(/^.*untrusted metadata.*$/gim, "") // remove the metadata label line
+      .replace(/^\s*\[[^\]]*\]\s*/, "") // leading [channel from ts] if present
+      .replace(/\n{2,}/g, "\n")
+      .trim();
+    if (cleaned) return cleaned;
+  }
+  // Simple envelope.
+  t = t.replace(/^\[[^\]]*\]\s*/, "");
+  t = t.replace(/^[^:\n]{1,40}:\s*/, "");
   return t.trim();
 }
 

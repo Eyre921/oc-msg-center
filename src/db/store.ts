@@ -625,6 +625,27 @@ export class Store {
       .prepare("INSERT INTO deliveries (id, message_id, user_id, channel, status, error, created_at) VALUES (?,?,?,?,?,?,?)")
       .run(uid("dlv"), messageId, userId, channel, status, error ?? null, now());
   }
+
+  /** Delivery success / failure counts since a unix-seconds timestamp. */
+  deliveryStats(since: number): { delivered: number; failed: number } {
+    const r = this.db
+      .prepare(
+        "SELECT SUM(status = 'delivered') AS d, SUM(status = 'failed') AS f FROM deliveries WHERE created_at >= ?",
+      )
+      .get(since) as Row;
+    return { delivered: Number(r.d ?? 0), failed: Number(r.f ?? 0) };
+  }
+
+  /** Most recent failed deliveries, for surfacing the actual error in the UI. */
+  recentFailedDeliveries(limit = 10): { channel: string; error: string | null; createdAt: number }[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT channel, error, created_at FROM deliveries WHERE status = 'failed' ORDER BY created_at DESC LIMIT ?",
+        )
+        .all(limit) as Row[]
+    ).map((r) => ({ channel: r.channel, error: r.error ?? null, createdAt: r.created_at }));
+  }
 }
 
 // ---- row mappers ------------------------------------------------------------

@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import {
+  Activity,
   Hash,
   HardDrive,
   Inbox,
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 
 export type PageId =
   | "overview"
+  | "status"
   | "inbox"
   | "conversations"
   | "compose"
@@ -29,6 +31,7 @@ export type PageId =
 
 export const NAV: { id: PageId; label: string; icon: React.ReactNode; group: string }[] = [
   { id: "overview", label: "概览", icon: <LayoutDashboard size={17} />, group: "main" },
+  { id: "status", label: "系统状态", icon: <Activity size={17} />, group: "main" },
   { id: "inbox", label: "收件箱", icon: <Inbox size={17} />, group: "main" },
   { id: "conversations", label: "对话", icon: <MessagesSquare size={17} />, group: "main" },
   { id: "compose", label: "发送消息", icon: <Send size={17} />, group: "main" },

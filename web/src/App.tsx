@@ -9,6 +9,7 @@ import { Channels } from "@/pages/Channels";
 import { Compose } from "@/pages/Compose";
 import { UsersPage } from "@/pages/Users";
 import { Groups } from "@/pages/Groups";
+import { Storage } from "@/pages/Storage";
 import { Webhooks } from "@/pages/Webhooks";
 import { Tokens } from "@/pages/Tokens";
 import { api, clearToken, getToken } from "@/lib/api";
@@ -22,6 +23,7 @@ const PAGES: Record<PageId, React.ComponentType> = {
   channels: Channels,
   users: UsersPage,
   groups: Groups,
+  storage: Storage,
   webhooks: Webhooks,
   tokens: Tokens,
 };

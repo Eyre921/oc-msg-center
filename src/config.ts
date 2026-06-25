@@ -53,9 +53,9 @@ export interface Config {
   authPublish: boolean;
   /** Max single attachment size in bytes. */
   attachmentMaxBytes: number;
-  /** How long (seconds) stored messages are retained before pruning. */
+  /** How long (seconds) stored messages are retained before pruning. 0 = keep forever. */
   messageTtlSeconds: number;
-  /** How long (seconds) attachments are retained before pruning. */
+  /** How long (seconds) attachments are retained before pruning. 0 = keep forever. */
   attachmentTtlSeconds: number;
   /** How long (seconds) a QR binding code stays valid. */
   bindingTtlSeconds: number;
@@ -146,8 +146,11 @@ export function loadConfig(): Config {
     openRegistration: envBool("MSGCENTER_OPEN_REGISTRATION", true),
     authPublish: envBool("MSGCENTER_AUTH_PUBLISH", false),
     attachmentMaxBytes: envInt("MSGCENTER_ATTACHMENT_MAX_BYTES", 100 * 1024 * 1024),
-    messageTtlSeconds: envInt("MSGCENTER_MESSAGE_TTL_SECONDS", 12 * 60 * 60),
-    attachmentTtlSeconds: envInt("MSGCENTER_ATTACHMENT_TTL_SECONDS", 3 * 24 * 60 * 60),
+    // Default: keep messages and files forever. The admin cleans up storage
+    // manually by rules (see /api/v1/storage/cleanup). Set a positive number of
+    // seconds to re-enable automatic TTL pruning.
+    messageTtlSeconds: envInt("MSGCENTER_MESSAGE_TTL_SECONDS", 0),
+    attachmentTtlSeconds: envInt("MSGCENTER_ATTACHMENT_TTL_SECONDS", 0),
     bindingTtlSeconds: envInt("MSGCENTER_BINDING_TTL_SECONDS", 10 * 60),
     inboxTopicPrefix: env("MSGCENTER_INBOX_TOPIC_PREFIX", "inbox-")!,
     channelAutoRegister: envBool("MSGCENTER_CHANNEL_AUTO_REGISTER", true),

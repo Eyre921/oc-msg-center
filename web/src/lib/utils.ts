@@ -21,3 +21,11 @@ export function fmtTime(unixSeconds: number): string {
     minute: "2-digit",
   });
 }
+
+export function fmtBytes(bytes: number): string {
+  if (!bytes) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const n = bytes / Math.pow(1024, i);
+  return `${n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+}

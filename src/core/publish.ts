@@ -66,6 +66,7 @@ export class Publisher {
 
   private record(topic: string, input: PublishInput): Message {
     const ts = now();
+    const ttl = this.cfg.messageTtlSeconds;
     const message: Message = {
       id: uid("msg"),
       topic,
@@ -77,7 +78,8 @@ export class Publisher {
       sender: input.sender ?? null,
       attachmentId: input.attachmentId ?? null,
       createdAt: ts,
-      expiresAt: ts + this.cfg.messageTtlSeconds,
+      // 0 = keep forever (admin cleans up manually).
+      expiresAt: ttl > 0 ? ts + ttl : 0,
     };
     this.store.insertMessage(message);
     this.stream.publish(message);

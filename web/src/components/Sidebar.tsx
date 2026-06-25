@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import {
   Hash,
+  HardDrive,
   Inbox,
   LayoutDashboard,
   LogOut,
@@ -22,6 +23,7 @@ export type PageId =
   | "channels"
   | "users"
   | "groups"
+  | "storage"
   | "webhooks"
   | "tokens";
 
@@ -33,6 +35,7 @@ export const NAV: { id: PageId; label: string; icon: React.ReactNode; group: str
   { id: "channels", label: "通知频道", icon: <Hash size={17} />, group: "routing" },
   { id: "users", label: "用户与机器人", icon: <Users size={17} />, group: "routing" },
   { id: "groups", label: "分组", icon: <UsersRound size={17} />, group: "routing" },
+  { id: "storage", label: "文件存储", icon: <HardDrive size={17} />, group: "routing" },
   { id: "webhooks", label: "Webhooks", icon: <Webhook size={17} />, group: "integrations" },
   { id: "tokens", label: "API Token", icon: <KeyRound size={17} />, group: "integrations" },
 ];

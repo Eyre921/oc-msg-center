@@ -2,11 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { getApp } from "./helpers.ts";
 import { listPeers } from "../openclaw/directory.ts";
 import { uid } from "../util/ids.ts";
+import { extractInbound, type ChatMessage, type ExtractedInbound } from "../core/inbound-media.ts";
 
-interface ChatMessage {
-  role: string;
-  content: unknown;
-}
 interface ChatBody {
   model?: string;
   messages?: ChatMessage[];
@@ -43,13 +40,13 @@ async function handleChat(req: FastifyRequest, reply: FastifyReply, scoped: bool
 
   const body = (req.body ?? {}) as ChatBody;
   const wantStream = body.stream !== false;
-  const userText = lastUserText(body.messages ?? []);
+  const extracted = extractInbound(body.messages ?? []);
 
   let replyText = "";
   try {
     if (scoped) {
       const { channel, accountId } = req.params as { channel: string; accountId: string };
-      replyText = await routeInbound(app, channel, accountId, userText);
+      replyText = await routeInbound(app, channel, accountId, extracted);
     } else {
       log.warn("agent hit /v1/chat/completions without account scope; cannot attribute sender");
       replyText = "";
@@ -69,8 +66,9 @@ async function routeInbound(
   app: ReturnType<typeof getApp>,
   channelId: string,
   accountId: string,
-  text: string,
+  inbound: ExtractedInbound,
 ): Promise<string> {
+  const text = inbound.text;
   const bot = app.store.getBotByAccount(channelId, accountId);
   if (!bot) {
     app.log.warn({ channelId, accountId }, "agent inbound for unknown bot");
@@ -110,8 +108,26 @@ async function routeInbound(
     return `${name}${app.cfg.welcomeMessage}`;
   }
 
+  // Download any files/images the colleague sent into permanent storage. Every
+  // inbound file is kept on the server; the first one is linked to the inbox
+  // message (the rest remain available in the storage admin).
+  const attachmentIds: string[] = [];
+  for (const ref of inbound.media) {
+    const att = await app.attachments.ingestRef(ref, user.id);
+    if (att) attachmentIds.push(att.id);
+    else app.log.warn({ channelId, accountId, ref: ref.slice(0, 48) }, "inbound media ingest failed");
+  }
+  if (attachmentIds.length) {
+    app.log.info({ user: user.id, count: attachmentIds.length }, "captured inbound media");
+  }
+
   // Strip openclaw's envelope header to recover what the colleague actually typed.
-  const cleanText = stripEnvelope(text);
+  let cleanText = stripEnvelope(text);
+  if (!cleanText && attachmentIds.length) {
+    cleanText = attachmentIds.length > 1 ? `[收到 ${attachmentIds.length} 个文件]` : "[收到 1 个文件]";
+  } else if (attachmentIds.length > 1) {
+    cleanText = `${cleanText}\n[共 ${attachmentIds.length} 个文件]`;
+  }
 
   const result = await app.inbound.handle({
     channel: channelId,
@@ -119,26 +135,9 @@ async function routeInbound(
     externalId: identity?.externalId ?? `${channelId}:${accountId}`,
     displayName: identity?.displayName ?? user.username,
     text: cleanText,
+    attachmentId: attachmentIds[0] ?? null,
   });
   return result.reply ?? "";
-}
-
-/** Take the content of the last user-role message. */
-function lastUserText(messages: ChatMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role !== "user") continue;
-    if (typeof m.content === "string") return m.content;
-    if (Array.isArray(m.content)) {
-      return m.content
-        .map((part) => (part && typeof part === "object" && "text" in part ? String((part as any).text) : ""))
-        .join(" ")
-        .trim();
-    }
-  }
-  // fall back to the very last message
-  const last = messages[messages.length - 1];
-  return typeof last?.content === "string" ? last.content : "";
 }
 
 /**
